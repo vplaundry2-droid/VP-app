@@ -624,7 +624,8 @@ function sendInvoiceWA(invId){
   const inv = state.invoices.find(i=> i.id === invId); if(!inv) return;
   if(inv.status !== 'unpaid') return showToast('Resend is allowed only for Unpaid invoices', true);
   const c = state.customers.find(x=> x.id === inv.customerId); if(!c || !c.phoneStored) return showToast('Customer phone missing', true);
-  const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number}.\nAmount: R${Number(inv.amount).toFixed(2)}.\nStatus: Unpaid.\nYou currently have ${c.stamps || 0} out of ${STAMPS_REQUIRED} stamps.`;
+  const commentLine = inv.notes ? `\nComments: ${inv.notes}` : '';
+  const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number}.\nAmount: R${Number(inv.amount).toFixed(2)}.\nStatus: Unpaid.\nYou currently have ${c.stamps || 0} out of ${STAMPS_REQUIRED} stamps.${commentLine}`;
   openWhatsAppDesktop(c.phoneStored, text);
   showToast('Invoice message opened in WhatsApp');
 }
