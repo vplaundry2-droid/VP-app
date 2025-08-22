@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Vaalpark Laundry — Manager (Windows)</title>
+<style>
+  :root{
+    --emerald:#50C878;
+    --emerald-dark:#3ea760;
+    --bg:#f4f6f5;
+    --card:#ffffff;
+    --muted:#6b7280;
+    --danger:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:#111}
+  header{height:72px;background:var(--card);border-bottom:3px solid var(--emerald);display:flex;align-items:center;justify-content:space-between;padding:12px 20px;position:fixed;left:0;right:0;top:0;z-index:1000}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:48px;height:48px;border-radius:8px;background:var(--emerald);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+  h1{margin:0;font-size:18px;color:var(--emerald)}
+  .nav{display:flex;gap:8px}
+  .nav button{padding:10px 18px;border-radius:10px;border:2px solid var(--emerald);background:rgba(80,200,120,0.08);color:var(--emerald);font-weight:700;cursor:pointer}
+  .nav button.active{background:var(--emerald);color:#fff}
+  .container{max-width:1200px;margin:92px auto 32px;padding:20px}
+  .layout{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start}
+  .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 10px 24px rgba(0,0,0,0.06)}
+  label{display:block;font-size:13px;color:var(--muted);margin-top:10px}
+  input,select,textarea,button{font-size:14px;padding:9px;border-radius:8px;border:1px solid #e6e9ef}
+  textarea{min-height:70px}
+  .btn{background:var(--emerald);color:#fff;border:0;padding:9px 12px;border-radius:8px;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid #dfe7e2;color:var(--emerald)}
+  .small{font-size:13px;color:var(--muted)}
+  .customers-list{max-height:640px;overflow:auto;margin-top:12px}
+  .customer-row{display:flex;justify-content:space-between;padding:8px;border-radius:8px;align-items:center}
+  .customer-row:hover{background:#fbfff8}
+  .actions{display:flex;gap:8px}
+  .actions button{padding:6px 8px;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:8px;border-bottom:1px solid #f0f2f1;text-align:left}
+  th{background:var(--emerald);color:#fff}
+  .invoices-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+  .invoice-item{padding:10px;border-radius:8px;border:1px solid #f0f2f1;background:#fff;display:flex;justify-content:space-between;align-items:center}
+  .invoice-item.unpaid{border-left:6px solid #f59e0b}
+  .invoice-item.paid{border-left:6px solid #10b981;background:#f0ffef}
+  .voucher{background:#f0fff4;border:1px solid #bfeecf;padding:6px;border-radius:6px}
+  .modal-backdrop{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000}
+  .modal{background:#fff;padding:18px;border-radius:10px;width:420px;box-shadow:0 20px 40px rgba(0,0,0,0.25)}
+  .note{font-size:12px;color:var(--muted);margin-top:8px}
+  .danger{color:var(--danger)}
+  .toasts{position:fixed;top:86px;right:18px;z-index:3000;display:flex;flex-direction:column;gap:8px}
+  .toast{background:var(--emerald);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 10px 20px rgba(0,0,0,0.12);opacity:0;transform:translateY(-8px);transition:all .18s}
+  .toast.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">VP</div>
+    <div>
+      <h1>Vaalpark Laundry</h1>
+      <div class="small">Customer & Loyalty Manager — Windows</div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button id="tabDashboard" class="active">Dashboard</button>
+    <button id="tabInvoices">Invoices</button>
+    <button id="tabRatings">Ratings</button>
+  </div>
+</header>
+
+<div class="toasts" id="toastWrap"></div>
+
+<main class="container">
+  <div class="layout">
+    <!-- LEFT: customers -->
+    <div class="card">
+      <h3>Customers</h3>
+
+      <label>Name</label>
+      <input id="inputName" placeholder="e.g. Thabo M.">
+
+      <label>Phone (e.g. 27831234567 or 0831234567)</label>
+      <input id="inputPhone" placeholder="e.g. 27831234567 or 0831234567">
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button id="btnAddCustomer" class="btn">Add customer</button>
+        <button id="btnClearAll" class="btn ghost">Clear all</button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button id="btnBackup" class="btn ghost">Backup</button>
+        <button id="btnRestore" class="btn ghost">Restore</button>
+        <input type="file" id="restoreFileInput" style="display:none" accept=".json,application/json">
+      </div>
+      <div class="note">Backup saves your data as a file. Restore replaces all current data.</div>
+
+      <label style="margin-top:12px">Search</label>
+      <input id="inputSearchCustomer" placeholder="Search by name or phone">
+
+      <div class="customers-list" id="customersList"></div>
+
+      <div style="margin-top:12px">
+        <button id="btnTestWA" class="btn ghost">Test WhatsApp (27662936777)</button>
+        <div class="note">Click Test WhatsApp to verify WhatsApp Desktop opens on this machine.</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: panels -->
+    <div>
+      <!-- Dashboard / Customer panel -->
+      <div id="dashboardPanel" class="card">
+        <div id="noCustomerSelected"><p class="small">Select a customer to open profile and create invoices.</p></div>
+
+        <div id="customerPanel" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <h2 id="custNameTitle">Customer</h2>
+              <div class="small" id="custPhoneTitle"></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div id="voucherSummary" class="voucher small">No vouchers</div>
+              <button id="btnWelcomeWA" class="btn ghost">Send Welcome</button>
+              <button id="btnEditCustomer" class="btn ghost">Edit</button>
+              <button id="btnDeleteCustomer" class="btn ghost danger">Delete</button>
+            </div>
+          </div>
+
+          <hr style="margin:12px 0">
+
+          <div style="display:flex;gap:16px">
+            <div style="flex:1">
+              <label>Service</label>
+              <select id="selectService">
+                <option>Wash and Dry</option>
+                <option>Wash Dry and Iron</option>
+                <option>Iron</option>
+                <option>Blankets</option>
+                <option>Dry-Cleaning</option>
+              </select>
+
+              <label>Amount (R)</label>
+              <input id="inputAmount" type="number" step="0.01" placeholder="0.00">
+
+              <label>Invoice Number</label>
+              <input id="inputInvoiceNumber" placeholder="Enter invoice number">
+
+              <label>Notes (per visit)</label>
+              <textarea id="inputNotes" placeholder="e.g. washed blankets"></textarea>
+
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button id="btnCreateInvoice" class="btn">Create Invoice & Send WA</button>
+                <button id="btnCreateInvoiceNoWA" class="btn ghost">Create Invoice (no WA)</button>
+                <button id="btnExportCSV" class="btn ghost">Export CSV</button>
+              </div>
+
+              <div class="note">Spend ≥ R200 earns 1 stamp (max 1 per visit). 10 stamps → R200 voucher (30 days).</div>
+            </div>
+
+            <div style="width:320px">
+              <label>Stamps</label>
+              <div id="stampsDisplay" style="margin-top:8px"></div>
+
+              <label style="margin-top:12px">Vouchers</label>
+              <div id="voucherList" style="margin-top:8px"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:14px">
+            <h4>Recent Transactions</h4>
+            <table>
+              <thead><tr><th>Invoice</th><th>Date</th><th>Service & Notes</th><th>Amount</th></tr></thead>
+              <tbody id="txTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Invoices panel -->
+      <div id="invoicesPanel" class="card" style="display:none;margin-top:16px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="invoiceSearch" placeholder="Search invoices by number, name or phone" style="flex:1">
+          <button id="btnRefreshInv" class="btn ghost">Refresh</button>
+          <button id="btnDeletePaid" class="btn ghost">Delete all paid</button>
+        </div>
+
+        <div class="invoices-grid">
+          <div>
+            <h4>Unpaid</h4>
+            <div id="unpaidList"></div>
+          </div>
+          <div>
+            <h4>Paid</h4>
+            <div id="paidList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ratings panel -->
+      <div id="ratingsPanel" class="card" style="display:none;margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <h3>Ratings</h3>
+            <div class="small">Manually record ratings customers send back to you via WhatsApp.</div>
+          </div>
+          <div style="text-align:right">
+            <div class="small">Average rating</div>
+            <div id="avgRating" style="font-weight:700">—</div>
+          </div>
+        </div>
+
+        <hr style="margin:10px 0">
+
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="ratingCustomerSelect" style="min-width:240px"></select>
+          <select id="ratingInvoiceSelect" style="min-width:180px"></select>
+          <select id="ratingValueSelect">
+            <option value="">Rating</option>
+            <option>5</option><option>4</option><option>3</option><option>2</option><option>1</option>
+          </select>
+          <button id="btnSaveRating" class="btn">Save Rating</button>
+        </div>
+
+        <div style="margin-top:12px">
+          <h4>All Ratings</h4>
+          <table>
+            <thead><tr><th>Date</th><th>Customer</th><th>Phone</th><th>Invoice</th><th>Rating</th><th>Actions</th></tr></thead>
+            <tbody id="ratingsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="modalRoot"></div>
+
+<script>
+const STORAGE_KEY = 'vaalpark_windows_v1';
+const TEST_WA_NUMBER = '27662936777';
+const LOYALTY_THRESHOLD = 200;
+const STAMPS_REQUIRED = 10;
+const VOUCHER_VALUE = 200;
+const VOUCHER_EXPIRY_DAYS = 30;
+
+let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || { customers: [], invoices: [], ratings: [] };
+
+function saveAll(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+function uid(pref='id'){ return pref + '_' + Math.random().toString(36).slice(2,9); }
+function monthKey(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function nowISO(){ return new Date().toISOString(); }
+function fmtDate(iso){ return iso ? (new Date(iso)).toLocaleString() : ''; }
+// Accepts 0XXXXXXXXX or 27XXXXXXXXX, always stores as 27XXXXXXXXX
+function normalizePhone(s='') {
+  let n = (s||'').replace(/[^\d]/g,'');
+  if(n.startsWith('0') && n.length === 10) {
+    n = '27' + n.slice(1);
+  }
+  if(n.startsWith('27') && n.length === 11) {
+    // ok
+  }
+  if(n.length === 11 && n.startsWith('27')) return n;
+  return '';
+}
+function firstName(n=''){ return (n||'').split(' ')[0] || n || ''; }
+function showToast(msg, err=false){
+  const wrap = document.getElementById('toastWrap');
+  const el = document.createElement('div'); el.className='toast'; el.textContent = msg; if(err) el.style.background = '#b91c1c';
+  wrap.appendChild(el); requestAnimationFrame(()=> el.classList.add('show')); setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=> el.remove(),250); }, 2200);
+}
+
+const tabDashboard = document.getElementById('tabDashboard'), tabInvoices = document.getElementById('tabInvoices'), tabRatings = document.getElementById('tabRatings');
+const customersListEl = document.getElementById('customersList');
+const inputName = document.getElementById('inputName'), inputPhone = document.getElementById('inputPhone'), inputSearchCustomer = document.getElementById('inputSearchCustomer');
+const btnAddCustomer = document.getElementById('btnAddCustomer'), btnClearAll = document.getElementById('btnClearAll'), btnTestWA = document.getElementById('btnTestWA');
+const btnBackup = document.getElementById('btnBackup'), btnRestore = document.getElementById('btnRestore'), restoreFileInput = document.getElementById('restoreFileInput');
+
+const noCustomerSelected = document.getElementById('noCustomerSelected'), customerPanel = document.getElementById('customerPanel');
+const custNameTitle = document.getElementById('custNameTitle'), custPhoneTitle = document.getElementById('custPhoneTitle');
+const btnWelcomeWA = document.getElementById('btnWelcomeWA'), btnEditCustomer = document.getElementById('btnEditCustomer'), btnDeleteCustomer = document.getElementById('btnDeleteCustomer');
+const voucherSummary = document.getElementById('voucherSummary');
+
+const selectService = document.getElementById('selectService'), inputAmount = document.getElementById('inputAmount'), inputNotes = document.getElementById('inputNotes');
+const inputInvoiceNumber = document.getElementById('inputInvoiceNumber');
+const btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
+const stampsDisplay = document.getElementById('stampsDisplay'), voucherList = document.getElementById('voucherList'), txTableBody = document.getElementById('txTableBody');
+
+const invoicesPanel = document.getElementById('invoicesPanel'), invoiceSearch = document.getElementById('invoiceSearch'), btnRefreshInv = document.getElementById('btnRefreshInv'), btnDeletePaid = document.getElementById('btnDeletePaid');
+const unpaidList = document.getElementById('unpaidList'), paidList = document.getElementById('paidList');
+
+const ratingsPanel = document.getElementById('ratingsPanel'), ratingCustomerSelect = document.getElementById('ratingCustomerSelect'), ratingInvoiceSelect = document.getElementById('ratingInvoiceSelect'), ratingValueSelect = document.getElementById('ratingValueSelect'), btnSaveRating = document.getElementById('btnSaveRating');
+const ratingsTableBody = document.getElementById('ratingsTableBody'), avgRatingEl = document.getElementById('avgRating');
+
+const modalRoot = document.getElementById('modalRoot');
+
+let currentCustomerId = null;
+
+tabDashboard.addEventListener('click', ()=> showTab('dashboard'));
+tabInvoices.addEventListener('click', ()=> showTab('invoices'));
+tabRatings.addEventListener('click', ()=> showTab('ratings'));
+
+function showTab(name){
+  tabDashboard.classList.remove('active'); tabInvoices.classList.remove('active'); tabRatings.classList.remove('active');
+  document.getElementById('dashboardPanel').style.display = 'block';
+  invoicesPanel.style.display = 'none';
+  ratingsPanel.style.display = 'none';
+  if(name === 'dashboard'){ tabDashboard.classList.add('active'); if(currentCustomerId) openCustomer(currentCustomerId); else { customerPanel.style.display='none'; noCustomerSelected.style.display='block'; } }
+  if(name === 'invoices'){ tabInvoices.classList.add('active'); customerPanel.style.display='none'; noCustomerSelected.style.display='none'; invoicesPanel.style.display='block'; renderInvoices(); }
+  if(name === 'ratings'){ tabRatings.classList.add('active'); customerPanel.style.display='none'; noCustomerSelected.style.display='none'; ratingsPanel.style.display='block'; renderRatingsUI(); }
+}
+
+// Backup
+btnBackup.addEventListener('click', function() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'vaalpark-laundry-backup-' + (new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('Backup file downloaded');
+});
+
+// Restore
+btnRestore.addEventListener('click', function() {
+  restoreFileInput.value = "";
+  restoreFileInput.click();
+});
+restoreFileInput.addEventListener('change', function(e) {
+  const file = restoreFileInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const imported = JSON.parse(evt.target.result);
+      if(imported && imported.customers && imported.invoices && imported.ratings) {
+        if(confirm('Restoring will replace ALL current data. Continue?')) {
+          state = imported;
+          saveAll();
+          renderState();
+          showToast('Data restored from backup');
+        }
+      } else {
+        showToast('Invalid backup file', true);
+      }
+    } catch(e) {
+      showToast('Failed to read backup: ' + e.message, true);
+    }
+  };
+  reader.readAsText(file);
+});
+
+btnAddCustomer.addEventListener('click', ()=> {
+  const name = inputName.value.trim(); 
+  const phoneRaw = inputPhone.value.trim();
+  if(!name || !phoneRaw) return showToast('Enter name and phone', true);
+  const normalized = normalizePhone(phoneRaw);
+  if(!normalized) return showToast('Invalid phone. Use 0XXXXXXXXX or 27XXXXXXXXXX', true);
+  if(state.customers.some(c => normalizePhone(c.phone) === normalized)) { 
+    const existing = state.customers.find(c=> normalizePhone(c.phone)===normalized); 
+    return showToast(`Phone already exists for ${existing.name}`, true); 
+  }
+  const c = { id: uid('cust'), name, phone: phoneRaw, phoneStored: normalized, stamps:0, vouchers:[], transactions:[], welcomeSent:false };
+  state.customers.push(c); saveAll(); inputName.value=''; inputPhone.value=''; renderCustomerList(); openCustomer(c.id); showToast('Customer added');
+});
+
+btnClearAll.addEventListener('click', ()=> {
+  if(!confirm('Clear all data? This will remove customers, invoices and ratings.')) return;
+  state = { customers: [], invoices: [], ratings: [] }; saveAll(); currentCustomerId=null;
+  renderCustomerList(); renderInvoices(); renderRatingsUI(); customerPanel.style.display='none'; noCustomerSelected.style.display='block'; showToast('All data cleared');
+});
+
+inputSearchCustomer.addEventListener('input', renderCustomerList);
+
+function renderCustomerList(){
+  customersListEl.innerHTML = '';
+  const q = (inputSearchCustomer.value || '').toLowerCase().replace(/\s+/g,'');
+  const sorted = state.customers.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+  sorted.forEach(c=>{
+    const hay = (c.name + ' ' + (c.phone||'')).toLowerCase().replace(/\s+/g,'');
+    if(q && !hay.includes(q)) return;
+    const div = document.createElement('div'); div.className='customer-row';
+    div.innerHTML = `<div style="display:flex;gap:10px;align-items:center">
+        <div style="width:44px;height:44px;border-radius:8px;background:rgba(80,200,120,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--emerald)">${(c.name||'?').charAt(0).toUpperCase()}</div>
+        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Stamps: ${c.stamps||0}</div></div>
+      </div>
+      <div class="actions">
+        <button data-open="${c.id}">Open</button>
+        <button data-edit="${c.id}">Edit</button>
+        <button data-delete="${c.id}" style="color:var(--danger)">Delete</button>
+      </div>`;
+    customersListEl.appendChild(div);
+  });
+
+  customersListEl.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openCustomer(b.dataset.open)));
+  customersListEl.querySelectorAll('[data-edit]').forEach(b=> b.addEventListener('click', ()=> editCustomer(b.dataset.edit)));
+  customersListEl.querySelectorAll('[data-delete]').forEach(b=> b.addEventListener('click', ()=> deleteCustomer(b.dataset.delete)));
+}
+
+function openCustomer(id){
+  const c = state.customers.find(x=>x.id===id); if(!c) return;
+  currentCustomerId = id; custNameTitle.textContent = c.name; custPhoneTitle.textContent = c.phone || '';
+  customerPanel.style.display = 'block'; noCustomerSelected.style.display='none';
+  renderStampDisplay(c); renderTransactionsForCustomer(c); renderVouchers(c); renderCustomerList();
+  btnWelcomeWA.style.display = c.welcomeSent ? 'none' : 'inline-block';
+}
+
+function editCustomer(id){
+  const c = state.customers.find(x=>x.id===id); if(!c) return;
+  const newName = prompt('Edit name', c.name); if(!newName) return;
+  const newPhone = prompt('Edit phone', c.phone); if(!newPhone) return;
+  const norm = normalizePhone(newPhone);
+  if(!norm) return showToast('Invalid phone. Use 0XXXXXXXXX or 27XXXXXXXXXX', true);
+  if(state.customers.some(x=> x.id !== id && normalizePhone(x.phone) === norm)) 
+    return showToast('Phone already exists', true);
+  c.name = newName; c.phone = newPhone; c.phoneStored = norm; 
+  saveAll(); renderCustomerList(); if(currentCustomerId===id) openCustomer(id); showToast('Customer updated');
+}
+
+function deleteCustomer(id){
+  const c = state.customers.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`Delete ${c.name} and all related invoices and ratings?`)) return;
+  state.invoices = (state.invoices||[]).filter(inv=> inv.customerId !== id);
+  state.customers = state.customers.filter(x=> x.id !== id);
+  state.ratings = (state.ratings||[]).filter(r=> r.customerId !== id);
+  saveAll(); currentCustomerId = null; customerPanel.style.display='none'; noCustomerSelected.style.display='block';
+  renderCustomerList(); renderInvoices(); renderRatingsUI(); showToast('Customer deleted');
+}
+
+btnWelcomeWA.addEventListener('click', ()=> {
+  if(!currentCustomerId) return showToast('Select a customer', true);
+  const c = state.customers.find(x=>x.id===currentCustomerId); if(!c || !c.phoneStored) return showToast('Customer phone missing', true);
+  const message = `Good day,\nThanks for your support.\nThis is our WhatsApp number and we use this for communication. We accept card and cash payment.\n\nWe will let you know as soon as you can pick up your items.\n\nHere is our trading hours -\nMonday - Fridays 7h00 - 17h30\nSaturdays 7h00 - 13h00.\n\nGreetings,\nVP Laundry.`;
+  openWhatsAppDesktop(c.phoneStored, message);
+  c.welcomeSent = true; saveAll(); btnWelcomeWA.style.display='none'; showToast('Welcome message opened in WhatsApp');
+});
+
+function renderStampDisplay(c){
+  const wrap = document.getElementById('stampsDisplay'); wrap.innerHTML = '';
+  for(let i=1;i<=STAMPS_REQUIRED;i++){
+    const d = document.createElement('div'); d.style.display='inline-block'; d.style.width='26px'; d.style.height='26px'; d.style.borderRadius='6px'; d.style.marginRight='6px'; d.style.textAlign='center'; d.style.lineHeight='26px'; d.style.fontWeight='700';
+    if(i <= (c.stamps||0)){ d.style.background = 'var(--emerald)'; d.style.color='#fff'; d.textContent='✓'; } else { d.style.background = '#eee'; d.textContent=''; }
+    wrap.appendChild(d);
+  }
+}
+
+function renderVouchers(c){
+  voucherList.innerHTML = '';
+  const now = new Date();
+  c.vouchers = (c.vouchers||[]).map(v => { if(!v.redeemed && v.expiresAt && new Date(v.expiresAt) < now) v.expired = true; return v; });
+  const active = (c.vouchers||[]).filter(v=> !v.redeemed && !v.expired);
+  const expired = (c.vouchers||[]).filter(v=> v.expired && !v.redeemed);
+  if(active.length===0 && expired.length===0){ voucherList.innerHTML = '<div class="small">No vouchers</div>'; voucherSummary.textContent = 'No vouchers'; return; }
+  active.forEach(v => { const div = document.createElement('div'); div.className='voucher'; div.innerHTML = `<strong>R ${v.value}</strong> • ${v.code} <div class="small">Expires: ${new Date(v.expiresAt).toLocaleDateString()}</div>`; voucherList.appendChild(div); });
+  expired.forEach(v => { const div = document.createElement('div'); div.className='small'; div.style.color='var(--danger)'; div.textContent = `Expired • ${v.code} (Expired: ${new Date(v.expiresAt).toLocaleDateString()})`; voucherList.appendChild(div); });
+  voucherSummary.textContent = active.length ? `${active.length} available` : 'No vouchers';
+}
+
+function renderTransactionsForCustomer(c){
+  txTableBody.innerHTML = '';
+  (c.transactions||[]).slice().reverse().forEach(t=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${t.invoice||''}</td><td class="small">${fmtDate(t.date)}</td><td>${escapeHtml(t.service)}${t.notes?('<div class="small">Notes: '+escapeHtml(t.notes)+'</div>'):''}</td><td>R ${Number(t.amount).toFixed(2)}</td>`;
+    txTableBody.appendChild(tr);
+  });
+}
+
+btnCreateInvoice.addEventListener('click', ()=> createInvoice(true));
+btnCreateInvoiceNoWA.addEventListener('click', ()=> createInvoice(false));
+
+function createInvoice(sendWA){
+  if(!currentCustomerId) return showToast('Select a customer', true);
+  const c = state.customers.find(x=>x.id===currentCustomerId); if(!c) return;
+  const service = selectService.value; const amt = parseFloat(inputAmount.value); const notes = inputNotes.value.trim();
+  const invNum = (inputInvoiceNumber.value || '').trim();
+  if(isNaN(amt) || amt <= 0) return showToast('Enter a valid amount', true);
+  if(!invNum) return showToast('Enter invoice number', true);
+  if(state.invoices.some(inv => String(inv.number) === invNum)) return showToast('Invoice number already exists', true);
+
+  cleanupExpiredVouchersAll();
+  let voucherAppliedValue = 0;
+  const activeV = (c.vouchers||[]).find(v=> !v.redeemed && !v.expired);
+  if(activeV){ voucherAppliedValue = activeV.value; activeV.redeemed = true; activeV.redeemedAt = nowISO(); }
+  const finalAmount = Math.max(0, amt - voucherAppliedValue);
+
+  if(finalAmount >= LOYALTY_THRESHOLD){
+    c.stamps = (c.stamps || 0) + 1;
+    if(c.stamps >= STAMPS_REQUIRED){
+      c.stamps = c.stamps - STAMPS_REQUIRED;
+      const code = 'V' + Math.random().toString(36).substr(2,8).toUpperCase();
+      const expires = new Date(); expires.setDate(expires.getDate() + VOUCHER_EXPIRY_DAYS);
+      const vobj = { id: uid('vou'), code, value: VOUCHER_VALUE, issuedAt: nowISO(), expiresAt: expires.toISOString(), redeemed:false, expired:false };
+      c.vouchers = c.vouchers || []; c.vouchers.push(vobj);
+      const voucherMsg = `Congratulations! You earned a voucher: Code ${vobj.code} — R${vobj.value}. Expires: ${new Date(vobj.expiresAt).toLocaleDateString()}.`;
+      openWhatsAppDesktop(c.phoneStored, voucherMsg);
+      showToast(`Voucher created: ${vobj.code}`);
+    }
+  }
+
+  const inv = { id: uid('inv'), number: invNum, date: nowISO(), customerId: c.id, customerName: c.name, amount: amt, service, notes, status:'unpaid', paymentMethod:null, paidAt:null, readyNotified:false };
+  state.invoices = state.invoices || []; state.invoices.push(inv);
+  c.transactions = c.transactions || []; c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: amt, notes });
+
+  saveAll(); renderStampDisplay(c); renderVouchers(c); renderTransactionsForCustomer(c); renderCustomerList(); renderInvoices();
+  inputAmount.value=''; inputNotes.value=''; inputInvoiceNumber.value='';
+
+  if(sendWA){ 
+    const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number} has been created.\nAmount: R${inv.amount.toFixed(2)}.\nStatus: Unpaid.\nYou currently have ${c.stamps || 0} out of ${STAMPS_REQUIRED} stamps.`;
+    openWhatsAppDesktop(c.phoneStored, text);
+  }
+  showToast('Invoice created');
+}
+
+btnExportCSV.addEventListener('click', ()=> {
+  const lines = ['Name,Phone,Stamps,Vouchers,Invoice,Date,Amount,Notes'];
+  state.customers.forEach(c=>{
+    if(c.transactions && c.transactions.length){
+      c.transactions.forEach(t=>{
+        const vstr = (c.vouchers||[]).map(v=>v.code+(v.redeemed? '(R)':'')).join('|');
+        lines.push(`"${c.name}","${c.phone || ''}","${c.stamps || 0}","${vstr}","${t.invoice || ''}","${t.date || ''}","${Number(t.amount).toFixed(2)}","${t.notes || ''}"`);
+      });
+    } else {
+      const vstr = (c.vouchers||[]).map(v=>v.code+(v.redeemed? '(R)':'')).join('|');
+      lines.push(`"${c.name}","${c.phone || ''}","${c.stamps || 0}","${vstr}","","","",""`);
+    }
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'vaalpark_laundry_export.csv'; a.click(); URL.revokeObjectURL(url); showToast('CSV exported');
+});
+
+invoiceSearch.addEventListener('input', renderInvoices);
+btnRefreshInv.addEventListener('click', renderInvoices);
+btnDeletePaid.addEventListener('click', ()=> {
+  if(!confirm('Delete ALL paid invoices?')) return;
+  state.invoices = (state.invoices||[]).filter(i=> i.status !== 'paid');
+  saveAll(); renderInvoices(); showToast('Paid invoices deleted');
+});
+
+function renderInvoices(){
+  unpaidList.innerHTML = ''; paidList.innerHTML = '';
+  const qRaw = (invoiceSearch.value || '').toLowerCase(); const q = qRaw.replace(/\s+/g,'');
+  const invs = (state.invoices||[]).slice().sort((a,b)=> new Date(b.date) - new Date(a.date));
+  invs.forEach(inv=>{
+    const cust = state.customers.find(c=> c.id === inv.customerId) || { name:'-', phone:'' };
+    const hay = `${inv.number} ${inv.customerName} ${cust.phone || ''} ${inv.service} ${inv.notes || ''}`.toLowerCase().replace(/\s+/g,'');
+    if(q && !hay.includes(q)) return;
+    const div = document.createElement('div'); div.className='invoice-item ' + (inv.status === 'paid' ? 'paid' : 'unpaid');
+    const left = document.createElement('div'); left.style.flex='1';
+    left.innerHTML = `<div style="font-weight:700">#${escapeHtml(inv.number)} • ${escapeHtml(inv.customerName)} <span class="small">(${fmtDate(inv.date)})</span></div>
+                      <div class="small">R ${Number(inv.amount).toFixed(2)} • ${escapeHtml(inv.service)} ${inv.notes?('<div class="small">Notes: '+escapeHtml(inv.notes)+'</div>'):''}</div>
+                      <div class="small">${inv.status === 'paid' ? 'Paid ('+inv.paymentMethod+') on '+(inv.paidAt? new Date(inv.paidAt).toLocaleDateString():'') : 'Unpaid'}</div>`;
+    const right = document.createElement('div'); right.style.display='flex'; right.style.flexDirection='column'; right.style.gap='8px'; right.style.alignItems='flex-end';
+    if(inv.status === 'unpaid'){
+      const btnPay = document.createElement('button'); btnPay.textContent='Mark Paid'; btnPay.className='btn'; btnPay.onclick = ()=> openPaymentModal(inv.id);
+      const btnEdit = document.createElement('button'); btnEdit.textContent='Edit'; btnEdit.className='btn ghost'; btnEdit.onclick = ()=> editInvoice(inv.id);
+      const btnSend = document.createElement('button'); btnSend.textContent='Send Invoice WA'; btnSend.className='btn ghost'; btnSend.onclick = ()=> sendInvoiceWA(inv.id);
+      const btnReady = document.createElement('button'); btnReady.textContent='Ready for Collection'; btnReady.className='btn ghost'; btnReady.onclick = ()=> readyForCollection(inv.id);
+      const btnDelete = document.createElement('button'); btnDelete.textContent='Delete'; btnDelete.className='btn ghost'; btnDelete.style.color = 'var(--danger)'; btnDelete.onclick = ()=> deleteInvoice(inv.id);
+      right.append(btnPay, btnEdit, btnSend, btnReady, btnDelete);
+      div.append(left,right); unpaidList.appendChild(div);
+    } else {
+      const btnSend = document.createElement('button'); btnSend.textContent='Send Invoice WA'; btnSend.className='btn ghost'; btnSend.onclick = ()=> sendInvoiceWA(inv.id);
+      const btnReady = document.createElement('button'); btnReady.textContent='Ready for Collection'; btnReady.className='btn ghost'; btnReady.onclick = ()=> readyForCollection(inv.id);
+      right.append(btnSend, btnReady);
+      div.append(left,right); paidList.appendChild(div);
+    }
+  });
+}
+
+function editInvoice(invId){
+  const inv = state.invoices.find(i=> i.id === invId); if(!inv) return;
+  if(inv.status === 'paid') return showToast('Paid invoices cannot be edited', true);
+  const newService = prompt('Service', inv.service); if(!newService) return;
+  const newAmount = parseFloat(prompt('Amount (R)', inv.amount)); if(isNaN(newAmount) || newAmount <= 0) return showToast('Invalid amount', true);
+  const newNotes = prompt('Notes', inv.notes || '') || '';
+  inv.service = newService; inv.amount = newAmount; inv.notes = newNotes;
+  state.customers.forEach(c=> { (c.transactions||[]).forEach(t=> { if(t.invoice == inv.number){ t.service = newService; t.amount = newAmount; t.notes = newNotes; } }); });
+  saveAll(); renderInvoices(); renderCustomerList(); showToast('Invoice updated');
+}
+
+function deleteInvoice(invId){
+  const idx = (state.invoices||[]).findIndex(i=> i.id === invId); if(idx === -1) return;
+  const inv = state.invoices[idx]; if(inv.status === 'paid') return showToast('Cannot delete a paid invoice', true);
+  if(!confirm(`Delete Invoice #${inv.number}?`)) return;
+  state.invoices.splice(idx,1);
+  state.customers.forEach(c=> c.transactions = (c.transactions||[]).filter(t=> t.invoice != inv.number));
+  saveAll(); renderInvoices(); renderCustomerList(); showToast('Invoice deleted');
+}
+
+function openPaymentModal(invId){
+  const inv = state.invoices.find(i=> i.id === invId); if(!inv) return;
+  const backdrop = document.createElement('div'); backdrop.className='modal-backdrop';
+  const modal = document.createElement('div'); modal.className='modal';
+  modal.innerHTML = `<h3>Mark Invoice #${escapeHtml(inv.number)} as Paid</h3><div style="margin-top:8px">Choose payment method:</div>`;
+  const sel = document.createElement('select'); sel.style.marginTop='8px'; sel.style.width='100%'; sel.innerHTML = `<option>Cash</option><option>Card</option>`;
+  const actions = document.createElement('div'); actions.style.marginTop='12px'; actions.style.display='flex'; actions.style.justifyContent='flex-end'; actions.style.gap='8px';
+  const btnCancel = document.createElement('button'); btnCancel.className='btn ghost'; btnCancel.textContent='Cancel';
+  const btnConfirm = document.createElement('button'); btnConfirm.className='btn'; btnConfirm.textContent='Confirm';
+  actions.append(btnCancel, btnConfirm); modal.appendChild(sel); modal.appendChild(actions); backdrop.appendChild(modal); modalRoot.appendChild(backdrop);
+
+  btnCancel.onclick = ()=> backdrop.remove();
+
+  btnConfirm.onclick = ()=> {
+    const method = sel.value;
+    inv.status = 'paid'; inv.paymentMethod = method; inv.paidAt = nowISO();
+    saveAll(); renderInvoices(); showToast('Invoice marked paid');
+    backdrop.remove();
+    const c = state.customers.find(x=> x.id === inv.customerId);
+    if(c && c.phoneStored){
+      const text = `Thank you, we have received your payment of R${Number(inv.amount).toFixed(2)} for Invoice #${inv.number}.\nPayment method: ${method}.\nPlease rate our service from 1 (poor) to 5 (excellent) by replying with your rating.\n\nGreetings,\nVP Laundry.`;
+      openWhatsAppDesktop(c.phoneStored, text);
+    }
+  };
+}
+
+function sendInvoiceWA(invId){
+  const inv = state.invoices.find(i=> i.id === invId); if(!inv) return;
+  if(inv.status !== 'unpaid') return showToast('Resend is allowed only for Unpaid invoices', true);
+  const c = state.customers.find(x=> x.id === inv.customerId); if(!c || !c.phoneStored) return showToast('Customer phone missing', true);
+  const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number}.\nAmount: R${Number(inv.amount).toFixed(2)}.\nStatus: Unpaid.\nYou currently have ${c.stamps || 0} out of ${STAMPS_REQUIRED} stamps.`;
+  openWhatsAppDesktop(c.phoneStored, text);
+  showToast('Invoice message opened in WhatsApp');
+}
+
+function readyForCollection(invId){
+  const inv = state.invoices.find(i=> i.id === invId); if(!inv) return;
+  const c = state.customers.find(x=> x.id === inv.customerId); if(!c || !c.phoneStored) return showToast('Customer phone missing', true);
+  const text = `Hello ${firstName(c.name)},\nYour laundry (Invoice #${inv.number}) is ready for collection.\nThank you,\nVaalpark Laundry.`;
+  openWhatsAppDesktop(c.phoneStored, text);
+  inv.readyForCollectionSent = true; saveAll(); renderInvoices(); showToast('Collection message opened in WhatsApp');
+}
+
+function openWhatsAppDesktop(phone, message){
+  const p = normalizePhone(phone);
+  if(!p) { showToast('Invalid phone', true); return; }
+  const waAppUrl = `whatsapp://send?phone=${p}&text=${encodeURIComponent(message)}`;
+  const waWebUrl = `https://web.whatsapp.com/send?phone=${p}&text=${encodeURIComponent(message)}`;
+  try {
+    window.open(waAppUrl, '_blank');
+    setTimeout(()=> { window.open(waWebUrl, '_blank'); }, 900);
+  } catch(e){
+    window.open(waWebUrl, '_blank');
+  }
+}
+
+function cleanupExpiredVouchersAll(){
+  const now = new Date();
+  state.customers.forEach(c=> { (c.vouchers||[]).forEach(v => { if(!v.redeemed && v.expiresAt && new Date(v.expiresAt) < now) v.expired = true; }); });
+}
+
+function renderRatingsUI(){
+  ratingCustomerSelect.innerHTML = `<option value="">Select customer</option>` + state.customers.map(c=> `<option value="${c.id}">${escapeHtml(c.name)} (${escapeHtml(c.phone)})</option>`).join('');
+  ratingInvoiceSelect.innerHTML = `<option value="">Select invoice</option>` + (state.invoices||[]).map(i => `<option value="${i.id}">#${escapeHtml(i.number)} • ${escapeHtml(i.customerName)} • R${Number(i.amount).toFixed(2)}</option>`).join('');
+  const rows = (state.ratings||[]).slice().sort((a,b)=> new Date(b.date) - new Date(a.date));
+  ratingsTableBody.innerHTML = rows.map(r=> `<tr><td>${fmtDate(r.date)}</td><td>${escapeHtml(r.customerName)}</td><td>${escapeHtml(r.phone)}</td><td>${r.invoiceNumber || ''}</td><td>${r.value}</td><td><button data-del="${r.id}">Delete</button></td></tr>`).join('');
+  ratingsTableBody.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', ()=> { const id=b.dataset.del; if(!confirm('Delete rating?')) return; state.ratings = state.ratings.filter(x=> x.id !== id); saveAll(); renderRatingsUI(); showToast('Rating deleted'); }));
+  const vals = (state.ratings||[]).map(r=> r.value);
+  const avg = vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length) : null;
+  avgRatingEl.textContent = avg ? (avg.toFixed(2) + ' / 5') : '—';
+}
+btnSaveRating.addEventListener('click', ()=> {
+  const custId = ratingCustomerSelect.value; const invId = ratingInvoiceSelect.value; const val = parseInt(ratingValueSelect.value);
+  if(!custId || !val) return showToast('Choose customer and rating', true);
+  const c = state.customers.find(x=> x.id === custId); if(!c) return showToast('Customer not found', true);
+  const inv = state.invoices.find(i=> i.id === invId);
+  const r = { id: uid('r'), date: nowISO(), customerId: custId, customerName: c.name, phone: c.phone, invoiceId: invId || null, invoiceNumber: inv ? inv.number : null, value: val };
+  state.ratings = state.ratings || []; state.ratings.push(r);
+  saveAll(); renderRatingsUI(); showToast('Rating saved');
+});
+
+btnTestWA.addEventListener('click', ()=> {
+  const testMsg = 'This is a test message from Vaalpark Laundry system.';
+  openWhatsAppDesktop(TEST_WA_NUMBER, testMsg);
+});
+
+function renderState(){
+  cleanupExpiredVouchersAll();
+  renderCustomerList();
+  renderInvoices();
+  renderRatingsUI();
+  if(state.customers.length && !currentCustomerId) { openCustomer(state.customers[0].id); }
+}
+renderState();
+
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+window._vaalparkState = () => state;
+</script>
+</body>
+</html>
