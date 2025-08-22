@@ -503,7 +503,7 @@ function createInvoice(sendWA){
     }
   }
 
-  const inv = { id: uid('inv'), number: invNum, date: nowISO(), customerId: c.id, customerName: c.name, amount: amt, service, notes, status:'unpaid', paymentMethod:null, paidAt:null, readyNotified:false };
+  const inv = { id: uid('inv'), number: invNum, date: nowISO(), customerId: c.id, customerName: c.name, amount: amt, service, notes, status:'unpaid', paymentMethod:null, paidAt:null, readyForCollectionSent:false };
   state.invoices = state.invoices || []; state.invoices.push(inv);
   c.transactions = c.transactions || []; c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: amt, notes });
 
@@ -561,13 +561,13 @@ function renderInvoices(){
       const btnPay = document.createElement('button'); btnPay.textContent='Mark Paid'; btnPay.className='btn'; btnPay.onclick = ()=> openPaymentModal(inv.id);
       const btnEdit = document.createElement('button'); btnEdit.textContent='Edit'; btnEdit.className='btn ghost'; btnEdit.onclick = ()=> editInvoice(inv.id);
       const btnSend = document.createElement('button'); btnSend.textContent='Send Invoice WA'; btnSend.className='btn ghost'; btnSend.onclick = ()=> sendInvoiceWA(inv.id);
-      const btnReady = document.createElement('button'); btnReady.textContent='Ready for Collection'; btnReady.className='btn ghost'; btnReady.onclick = ()=> readyForCollection(inv.id);
+      const btnReady = document.createElement('button'); btnReady.textContent='Ready for Collection'; btnReady.className = inv.readyForCollectionSent ? 'btn' : 'btn ghost'; btnReady.onclick = ()=> readyForCollection(inv.id);
       const btnDelete = document.createElement('button'); btnDelete.textContent='Delete'; btnDelete.className='btn ghost'; btnDelete.style.color = 'var(--danger)'; btnDelete.onclick = ()=> deleteInvoice(inv.id);
       right.append(btnPay, btnEdit, btnSend, btnReady, btnDelete);
       div.append(left,right); unpaidList.appendChild(div);
     } else {
       const btnSend = document.createElement('button'); btnSend.textContent='Send Invoice WA'; btnSend.className='btn ghost'; btnSend.onclick = ()=> sendInvoiceWA(inv.id);
-      const btnReady = document.createElement('button'); btnReady.textContent='Ready for Collection'; btnReady.className='btn ghost'; btnReady.onclick = ()=> readyForCollection(inv.id);
+      const btnReady = document.createElement('button'); btnReady.textContent='Ready for Collection'; btnReady.className = inv.readyForCollectionSent ? 'btn' : 'btn ghost'; btnReady.onclick = ()=> readyForCollection(inv.id);
       right.append(btnSend, btnReady);
       div.append(left,right); paidList.appendChild(div);
     }
