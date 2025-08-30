@@ -151,6 +151,7 @@
               <textarea id="inputNotes" placeholder="e.g. washed blankets"></textarea>
 
               <div style="display:flex;gap:8px;margin-top:10px">
+                <button id="btnRedeemPoints" class="btn ghost">Redeem Points</button>
                 <button id="btnCreateInvoice" class="btn">Create Invoice & Send WA</button>
                 <button id="btnCreateInvoiceNoWA" class="btn ghost">Create Invoice (no WA)</button>
                 <button id="btnExportCSV" class="btn ghost">Export CSV</button>
@@ -286,7 +287,7 @@ const voucherSummary = document.getElementById('voucherSummary');
 
 const selectService = document.getElementById('selectService'), inputAmount = document.getElementById('inputAmount'), inputNotes = document.getElementById('inputNotes');
 const inputInvoiceNumber = document.getElementById('inputInvoiceNumber');
-const btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
+const btnRedeemPoints = document.getElementById('btnRedeemPoints'), btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
 const stampsDisplay = document.getElementById('stampsDisplay'), voucherList = document.getElementById('voucherList'), txTableBody = document.getElementById('txTableBody');
 
 const invoicesPanel = document.getElementById('invoicesPanel'), invoiceSearch = document.getElementById('invoiceSearch'), btnRefreshInv = document.getElementById('btnRefreshInv'), btnDeletePaid = document.getElementById('btnDeletePaid');
@@ -366,7 +367,7 @@ btnAddCustomer.addEventListener('click', ()=> {
     const existing = state.customers.find(c=> normalizePhone(c.phone)===normalized); 
     return showToast(`Phone already exists for ${existing.name}`, true); 
   }
-  const c = { id: uid('cust'), name, phone: phoneRaw, phoneStored: normalized, stamps:0, vouchers:[], transactions:[], welcomeSent:false };
+  const c = { id: uid('cust'), name, phone: phoneRaw, phoneStored: normalized, stamps:0, points:0, vouchers:[], transactions:[], welcomeSent:false };
   state.customers.push(c); saveAll(); inputName.value=''; inputPhone.value=''; renderCustomerList(); openCustomer(c.id); showToast('Customer added');
 });
 
@@ -388,7 +389,7 @@ function renderCustomerList(){
     const div = document.createElement('div'); div.className='customer-row';
     div.innerHTML = `<div style="display:flex;gap:10px;align-items:center">
         <div style="width:44px;height:44px;border-radius:8px;background:rgba(80,200,120,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--emerald)">${(c.name||'?').charAt(0).toUpperCase()}</div>
-        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Stamps: ${c.stamps||0}</div></div>
+        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Stamps: ${c.stamps||0} • Points: ${c.points||0}</div></div>
       </div>
       <div class="actions">
         <button data-open="${c.id}">Open</button>
@@ -473,6 +474,23 @@ function renderTransactionsForCustomer(c){
 
 btnCreateInvoice.addEventListener('click', ()=> createInvoice(true));
 btnCreateInvoiceNoWA.addEventListener('click', ()=> createInvoice(false));
+btnRedeemPoints.addEventListener('click', redeemPoints);
+
+function redeemPoints(){
+  if(!currentCustomerId) return showToast('Select a customer', true);
+  const c = state.customers.find(x=>x.id===currentCustomerId); if(!c) return;
+  let amt = parseFloat(inputAmount.value);
+  if(isNaN(amt) || amt <= 0) return showToast('Enter amount first', true);
+  c.points = c.points || 0;
+  if(c.points <= 0) return showToast('No points to redeem', true);
+  const pointsToUse = Math.min(c.points, amt);
+  amt -= pointsToUse;
+  c.points -= pointsToUse;
+  inputAmount.value = amt.toFixed(2);
+  saveAll();
+  renderCustomerList();
+  showToast(`Redeemed R${pointsToUse.toFixed(2)} using points. New amount: R${amt.toFixed(2)}`);
+}
 
 function createInvoice(sendWA){
   if(!currentCustomerId) return showToast('Select a customer', true);
@@ -684,6 +702,7 @@ btnTestWA.addEventListener('click', ()=> {
 
 function renderState(){
   cleanupExpiredVouchersAll();
+  state.customers.forEach(c => { if(typeof c.points !== 'number') c.points = 0; });
   renderCustomerList();
   renderInvoices();
   renderRatingsUI();
