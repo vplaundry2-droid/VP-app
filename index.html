@@ -387,7 +387,7 @@ restoreFileInput.addEventListener('change', function(e) {
           state = imported;
           currentCustomerId = null;
           migrateStateToPoints();
-          rebuildAllPointsFromInvoices({ updateUi:false });
+          rebuildAllPointsFromInvoices({ updateUi:false, includeUnpaid:true, resetBefore:true });
           renderState();
           showToast('Data restored from backup');
         }
@@ -562,12 +562,13 @@ function allocatePointsFromInvoices(c, opts={}){
   const silent = !!opts.silent;
   const updateUi = opts.updateUi !== false;
   const skipSave = !!opts.skipSave;
+  const includeUnpaid = !!opts.includeUnpaid;
   const allInvoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
   if(!allInvoices.length){
     if(!silent) showToast('No invoices found for this customer', true);
     return false;
   }
-  const invoices = allInvoices.filter(inv => (inv.status || 'paid') === 'paid');
+  const invoices = includeUnpaid ? allInvoices : allInvoices.filter(inv => (inv.status || 'paid') === 'paid');
   if(!invoices.length){
     if(!silent) showToast('No paid invoices found for this customer', true);
     return false;
@@ -634,9 +635,20 @@ function allocatePointsFromInvoices(c, opts={}){
 
 function rebuildAllPointsFromInvoices(opts={}){
   const customers = state.customers || [];
+  const includeUnpaid = !!opts.includeUnpaid;
+  const resetBefore = !!opts.resetBefore;
   let anyChanged = false;
   customers.forEach(c => {
-    const changed = allocatePointsFromInvoices(c, { silent:true, updateUi:false, skipSave:true });
+    if(resetBefore){
+      const hadBalance = floorPoints(c.pointsBalance);
+      const hadTransactions = Array.isArray(c.transactions) && c.transactions.length > 0;
+      if(hadBalance || hadTransactions){
+        anyChanged = true;
+      }
+      c.pointsBalance = 0;
+      c.transactions = [];
+    }
+    const changed = allocatePointsFromInvoices(c, { silent:true, updateUi:false, skipSave:true, includeUnpaid });
     if(changed) anyChanged = true;
   });
   saveAll();
