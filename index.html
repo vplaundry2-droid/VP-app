@@ -48,6 +48,8 @@
   .modal-backdrop{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000}
   .modal{background:#fff;padding:18px;border-radius:10px;width:420px;box-shadow:0 20px 40px rgba(0,0,0,0.25)}
   .note{font-size:12px;color:var(--muted);margin-top:8px}
+  .redeem-row{display:flex;gap:8px;align-items:center;margin-top:6px}
+  .redeem-row input{flex:1}
   .danger{color:var(--danger)}
   .toasts{position:fixed;top:86px;right:18px;z-index:3000;display:flex;flex-direction:column;gap:8px}
   .toast{background:var(--emerald);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 10px 20px rgba(0,0,0,0.12);opacity:0;transform:translateY(-8px);transition:all .18s}
@@ -158,14 +160,17 @@
               </div>
 
               <label>Redeem Points</label>
-              <input id="inputRedeemPoints" type="number" min="0" step="0.01" placeholder="0.00">
-              <div class="note">Enter the amount of points to redeem on this invoice.</div>
+              <div class="redeem-row">
+                <input id="inputRedeemPoints" type="number" min="0" step="1" placeholder="0" readonly>
+                <button id="btnRedeemAll" class="btn ghost" type="button">Redeem All Points</button>
+              </div>
+              <div class="note">Use the button to redeem all available points for this invoice.</div>
               <div class="note">Customers earn 5% back in points on every rand spent.</div>
             </div>
 
             <div style="width:320px">
               <label>Points Balance</label>
-              <div id="pointsBalanceDisplay" style="margin-top:8px;font-size:28px;font-weight:700">0.00 pts</div>
+              <div id="pointsBalanceDisplay" style="margin-top:8px;font-size:28px;font-weight:700">0 pts</div>
               <div class="small" style="margin-top:6px">Points never expire and can be redeemed anytime.</div>
               <button id="btnAllocatePoints" class="btn ghost" style="margin-top:12px;width:100%">Allocate points from invoices</button>
               <div class="note">Use this to rebuild loyalty points using all invoices on file for this customer.</div>
@@ -250,20 +255,20 @@ let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || { custome
 
 function migrateStateToPoints(){
   (state.customers||[]).forEach(c=>{
-    if(typeof c.pointsBalance !== 'number'){ c.pointsBalance = Number(c.pointsBalance || 0); }
+    c.pointsBalance = floorPoints(c.pointsBalance);
     delete c.stamps;
     delete c.vouchers;
     c.transactions = c.transactions || [];
     c.transactions.forEach(t=>{
       if(typeof t.originalAmount === 'undefined'){ t.originalAmount = t.amount; }
-      if(typeof t.pointsRedeemed !== 'number'){ t.pointsRedeemed = 0; }
-      if(typeof t.pointsEarned !== 'number'){ t.pointsEarned = 0; }
+      t.pointsRedeemed = floorPoints(t.pointsRedeemed);
+      t.pointsEarned = floorPoints(t.pointsEarned);
     });
   });
   (state.invoices||[]).forEach(inv=>{
     if(typeof inv.originalAmount === 'undefined'){ inv.originalAmount = inv.amount; }
-    if(typeof inv.redeemedPoints !== 'number'){ inv.redeemedPoints = 0; }
-    if(typeof inv.pointsEarned !== 'number'){ inv.pointsEarned = 0; }
+    inv.redeemedPoints = floorPoints(inv.redeemedPoints);
+    inv.pointsEarned = floorPoints(inv.pointsEarned);
   });
 }
 migrateStateToPoints();
@@ -276,6 +281,8 @@ function monthKey(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padSta
 function nowISO(){ return new Date().toISOString(); }
 function fmtDate(iso){ return iso ? (new Date(iso)).toLocaleString() : ''; }
 function num(value, fallback=0){ const n = Number(value); return Number.isFinite(n) ? n : fallback; }
+function floorPoints(value){ return Math.max(0, Math.floor(num(value, 0))); }
+function formatPoints(value){ return String(floorPoints(value)); }
 // Accepts 0XXXXXXXXX or 27XXXXXXXXX, always stores as 27XXXXXXXXX
 function normalizePhone(s='') {
   let n = (s||'').replace(/[^\d]/g,'');
@@ -309,11 +316,12 @@ const pointsSummary = document.getElementById('pointsSummary');
 const selectService = document.getElementById('selectService'), inputAmount = document.getElementById('inputAmount'), inputNotes = document.getElementById('inputNotes');
 const inputInvoiceNumber = document.getElementById('inputInvoiceNumber');
 const inputRedeemPoints = document.getElementById('inputRedeemPoints');
+const btnRedeemAll = document.getElementById('btnRedeemAll');
 const btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
 const btnAllocatePoints = document.getElementById('btnAllocatePoints');
 const pointsBalanceDisplay = document.getElementById('pointsBalanceDisplay'), txTableBody = document.getElementById('txTableBody');
 if(pointsSummary){ pointsSummary.innerHTML = '0 pts <span>available</span>'; }
-if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0.00 pts'; }
+if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0 pts'; }
 
 const invoicesPanel = document.getElementById('invoicesPanel'), invoiceSearch = document.getElementById('invoiceSearch'), btnRefreshInv = document.getElementById('btnRefreshInv'), btnDeletePaid = document.getElementById('btnDeletePaid');
 const unpaidList = document.getElementById('unpaidList'), paidList = document.getElementById('paidList');
@@ -377,7 +385,9 @@ restoreFileInput.addEventListener('change', function(e) {
       if(imported && imported.customers && imported.invoices && imported.ratings) {
         if(confirm('Restoring will replace ALL current data. Continue?')) {
           state = imported;
-          saveAll();
+          currentCustomerId = null;
+          migrateStateToPoints();
+          rebuildAllPointsFromInvoices({ updateUi:false });
           renderState();
           showToast('Data restored from backup');
         }
@@ -410,7 +420,7 @@ btnClearAll.addEventListener('click', ()=> {
   state = { customers: [], invoices: [], ratings: [] }; saveAll(); currentCustomerId=null;
   renderCustomerList(); renderInvoices(); renderRatingsUI(); customerPanel.style.display='none'; noCustomerSelected.style.display='block'; showToast('All data cleared');
   if(pointsSummary){ pointsSummary.innerHTML = '0 pts <span>available</span>'; }
-  if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0.00 pts'; }
+  if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0 pts'; }
   if(inputRedeemPoints){ inputRedeemPoints.value=''; inputRedeemPoints.dataset.userEdited=''; }
 });
 
@@ -426,7 +436,7 @@ function renderCustomerList(){
     const div = document.createElement('div'); div.className='customer-row';
     div.innerHTML = `<div style="display:flex;gap:10px;align-items:center">
         <div style="width:44px;height:44px;border-radius:8px;background:rgba(80,200,120,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--emerald)">${(c.name||'?').charAt(0).toUpperCase()}</div>
-        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Points: ${(c.pointsBalance||0).toFixed(2)}</div></div>
+        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Points: ${formatPoints(c.pointsBalance||0)}</div></div>
       </div>
       <div class="actions">
         <button data-open="${c.id}">Open</button>
@@ -455,9 +465,9 @@ function autoAllocatePointsForCustomer(c){
   const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
   if(!invoices.length) return false;
   const hasTransactions = Array.isArray(c.transactions) && c.transactions.length > 0;
-  const expectedBalance = Math.round(invoices.reduce((sum,inv)=> sum + num(inv.pointsEarned, 0) - num(inv.redeemedPoints, 0), 0) * 100) / 100;
-  const storedBalance = Math.round(num(c.pointsBalance, 0) * 100) / 100;
-  if(!hasTransactions || Math.abs(expectedBalance - storedBalance) > 0.009){
+  const expectedBalance = floorPoints(invoices.reduce((sum,inv)=> sum + floorPoints(inv.pointsEarned) - floorPoints(inv.redeemedPoints), 0));
+  const storedBalance = floorPoints(c.pointsBalance);
+  if(!hasTransactions || expectedBalance !== storedBalance){
     allocatePointsFromInvoices(c, { silent:true });
     return true;
   }
@@ -485,7 +495,7 @@ function deleteCustomer(id){
   saveAll(); currentCustomerId = null; customerPanel.style.display='none'; noCustomerSelected.style.display='block';
   renderCustomerList(); renderInvoices(); renderRatingsUI(); showToast('Customer deleted');
   if(pointsSummary){ pointsSummary.innerHTML = '0 pts <span>available</span>'; }
-  if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0.00 pts'; }
+  if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0 pts'; }
   if(inputRedeemPoints){ inputRedeemPoints.value=''; inputRedeemPoints.dataset.userEdited=''; }
 }
 
@@ -498,18 +508,18 @@ btnWelcomeWA.addEventListener('click', ()=> {
 });
 
 function renderPoints(c){
-  const balance = Number(c.pointsBalance || 0);
-  pointsBalanceDisplay.textContent = `${balance.toFixed(2)} pts`;
+  const balance = floorPoints(c.pointsBalance);
+  pointsBalanceDisplay.textContent = `${formatPoints(balance)} pts`;
   if(pointsSummary){
-    pointsSummary.innerHTML = `${balance.toFixed(2)} pts <span>available</span>`;
+    pointsSummary.innerHTML = `${formatPoints(balance)} pts <span>available</span>`;
   }
   if(inputRedeemPoints){
-    const max = Math.max(0, balance);
-    inputRedeemPoints.max = max.toFixed(2);
+    const max = floorPoints(balance);
+    inputRedeemPoints.max = formatPoints(max);
     if(!inputRedeemPoints.dataset.userEdited){
       inputRedeemPoints.value = '';
     } else if(parseFloat(inputRedeemPoints.value) > max){
-      inputRedeemPoints.value = max.toFixed(2);
+      inputRedeemPoints.value = formatPoints(max);
     }
   }
 }
@@ -520,20 +530,38 @@ if(inputRedeemPoints){
     if(!currentCustomerId) return;
     const c = state.customers.find(x=> x.id === currentCustomerId);
     if(!c) return;
-    const max = Math.max(0, Number(c.pointsBalance||0));
+    const max = floorPoints(c.pointsBalance);
     let val = parseFloat(inputRedeemPoints.value);
     if(isNaN(val) || val < 0){
       inputRedeemPoints.value = '';
       return;
     }
     if(val > max){
-      inputRedeemPoints.value = max.toFixed(2);
+      inputRedeemPoints.value = formatPoints(max);
     }
+  });
+}
+
+if(btnRedeemAll){
+  btnRedeemAll.addEventListener('click', ()=> {
+    if(!currentCustomerId) return showToast('Select a customer', true);
+    const c = state.customers.find(x=> x.id === currentCustomerId);
+    if(!c) return showToast('Customer not found', true);
+    const available = floorPoints(c.pointsBalance);
+    if(!available){
+      inputRedeemPoints.value = '';
+      inputRedeemPoints.dataset.userEdited='';
+      return showToast('No points available to redeem', true);
+    }
+    inputRedeemPoints.value = formatPoints(available);
+    inputRedeemPoints.dataset.userEdited='true';
   });
 }
 
 function allocatePointsFromInvoices(c, opts={}){
   const silent = !!opts.silent;
+  const updateUi = opts.updateUi !== false;
+  const skipSave = !!opts.skipSave;
   const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
   if(!invoices.length){
     if(!silent) showToast('No invoices found for this customer', true);
@@ -548,15 +576,14 @@ function allocatePointsFromInvoices(c, opts={}){
   let balance = 0;
   sorted.forEach(inv => {
     const original = num(inv.originalAmount, num(inv.amount, 0));
-    let redeemed = num(inv.redeemedPoints, 0);
-    if(redeemed < 0) redeemed = 0;
+    let redeemed = floorPoints(inv.redeemedPoints);
     let finalAmount = num(inv.amount, Math.max(0, original - redeemed));
     if(finalAmount < 0) finalAmount = 0;
-    let earned = num(inv.pointsEarned, NaN);
+    let earned = floorPoints(inv.pointsEarned);
     if(!Number.isFinite(earned) || earned < 0){
-      earned = Math.round(finalAmount * LOYALTY_RATE * 100) / 100;
-      inv.pointsEarned = earned;
+      earned = floorPoints(finalAmount * LOYALTY_RATE);
     }
+    inv.pointsEarned = earned;
     inv.originalAmount = original;
     inv.redeemedPoints = redeemed;
     balance += earned;
@@ -573,39 +600,68 @@ function allocatePointsFromInvoices(c, opts={}){
       notes: inv.notes || ''
     });
   });
-  balance = Math.round(balance * 100) / 100;
-  if(balance < 0 && Math.abs(balance) < 0.009) balance = 0;
-  if(balance < 0) balance = 0;
-  const beforeBalance = num(c.pointsBalance, 0);
+  balance = floorPoints(balance);
+  const beforeBalance = floorPoints(c.pointsBalance);
   const beforeCount = Array.isArray(c.transactions) ? c.transactions.length : 0;
   c.transactions = transactions;
   c.pointsBalance = balance;
-  saveAll();
-  renderPoints(c);
-  renderTransactionsForCustomer(c);
-  renderCustomerList();
-  renderInvoices();
-  if(inputRedeemPoints){ inputRedeemPoints.dataset.userEdited=''; inputRedeemPoints.value=''; }
-  const changed = Math.abs(balance - beforeBalance) > 0.009 || beforeCount !== transactions.length;
+  if(!skipSave){
+    saveAll();
+  }
+  if(updateUi){
+    renderPoints(c);
+    if(currentCustomerId === c.id){
+      renderTransactionsForCustomer(c);
+      if(inputRedeemPoints){ inputRedeemPoints.dataset.userEdited=''; inputRedeemPoints.value=''; }
+    }
+    renderCustomerList();
+    renderInvoices();
+  }
+  const changed = beforeBalance !== balance || beforeCount !== transactions.length;
   if(!silent){
     const msg = changed
-      ? `Points updated to ${balance.toFixed(2)} pts (was ${beforeBalance.toFixed(2)} pts)`
+      ? `Points updated to ${formatPoints(balance)} pts (was ${formatPoints(beforeBalance)} pts)`
       : 'Points were already up to date';
     showToast(msg, false);
   }
   return changed;
 }
 
+function rebuildAllPointsFromInvoices(opts={}){
+  const customers = state.customers || [];
+  let anyChanged = false;
+  customers.forEach(c => {
+    const changed = allocatePointsFromInvoices(c, { silent:true, updateUi:false, skipSave:true });
+    if(changed) anyChanged = true;
+  });
+  saveAll();
+  if(opts.updateUi !== false){
+    renderCustomerList();
+    renderInvoices();
+    if(currentCustomerId){
+      const current = state.customers.find(x=> x.id === currentCustomerId);
+      if(current){
+        renderPoints(current);
+        renderTransactionsForCustomer(current);
+      }
+    }
+  }
+  if(opts.showToast && anyChanged){
+    showToast('Loyalty points rebuilt');
+  }
+  return anyChanged;
+}
+
 function renderTransactionsForCustomer(c){
   txTableBody.innerHTML = '';
   (c.transactions||[]).slice().reverse().forEach(t=>{
-    const redeemed = Number(t.pointsRedeemed||0);
-    const earned = Number(t.pointsEarned||0);
+    const redeemed = floorPoints(t.pointsRedeemed);
+    const earned = floorPoints(t.pointsEarned);
     const original = Number(t.originalAmount || t.amount || 0);
     const finalAmt = Number(t.amount || 0);
     const pointsBits = [];
-    if(redeemed) pointsBits.push(`Redeemed ${redeemed.toFixed(2)} pts`);
-    if(earned) pointsBits.push(`Earned ${earned.toFixed(2)} pts`);
+    if(redeemed) pointsBits.push(`Redeemed ${formatPoints(redeemed)} pts`);
+    if(earned) pointsBits.push(`Earned ${formatPoints(earned)} pts`);
     const pointsLine = pointsBits.length ? `<div class="small">${pointsBits.join(' • ')}</div>` : '';
     const noteLine = t.notes ? `<div class="small">Notes: ${escapeHtml(t.notes)}</div>` : '';
     const originalLine = Math.abs(original - finalAmt) > 0.009 ? `<div class="small">Original: R ${original.toFixed(2)}</div>` : '';
@@ -621,7 +677,7 @@ btnCreateInvoiceNoWA.addEventListener('click', ()=> createInvoice(false));
 function createInvoice(sendWA){
   if(!currentCustomerId) return showToast('Select a customer', true);
   const c = state.customers.find(x=>x.id===currentCustomerId); if(!c) return;
-  c.pointsBalance = Number(c.pointsBalance || 0);
+  c.pointsBalance = floorPoints(c.pointsBalance);
   const service = selectService.value; const amt = parseFloat(inputAmount.value); const notes = inputNotes.value.trim();
   const invNum = (inputInvoiceNumber.value || '').trim();
   if(isNaN(amt) || amt <= 0) return showToast('Enter a valid amount', true);
@@ -630,16 +686,15 @@ function createInvoice(sendWA){
 
   let redeem = parseFloat(inputRedeemPoints.value);
   if(isNaN(redeem) || redeem < 0) redeem = 0;
-  const available = Number(c.pointsBalance || 0);
-  if(redeem > available + 0.0001) return showToast('Cannot redeem more points than available', true);
+  redeem = floorPoints(redeem);
+  const available = floorPoints(c.pointsBalance || 0);
+  if(redeem > available) return showToast('Cannot redeem more points than available', true);
   redeem = Math.min(redeem, available);
-  redeem = Math.round(redeem * 100) / 100;
 
   const finalAmount = Math.max(0, amt - redeem);
   const earnedRaw = finalAmount * LOYALTY_RATE;
-  const earned = Math.round(earnedRaw * 100) / 100;
-  c.pointsBalance = Math.max(0, available - redeem + earned);
-  c.pointsBalance = Math.round(c.pointsBalance * 100) / 100;
+  const earned = floorPoints(earnedRaw);
+  c.pointsBalance = floorPoints(Math.max(0, available - redeem + earned));
 
   const inv = {
     id: uid('inv'),
@@ -668,7 +723,7 @@ function createInvoice(sendWA){
 
   if(sendWA){
     const commentLine = inv.notes ? `\nComments: ${inv.notes}` : '';
-    const redemptionLine = redeem ? `\nRedeemed points: ${redeem.toFixed(2)} (new balance: ${(c.pointsBalance||0).toFixed(2)} pts)` : `\nPoints balance: ${(c.pointsBalance||0).toFixed(2)} pts`;
+    const redemptionLine = redeem ? `\nRedeemed points: ${formatPoints(redeem)} (new balance: ${formatPoints(c.pointsBalance||0)} pts)` : `\nPoints balance: ${formatPoints(c.pointsBalance||0)} pts`;
     const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number} has been created.\nAmount due: R${inv.amount.toFixed(2)}.${commentLine}${redemptionLine}`;
     openWhatsAppDesktop(c.phoneStored, text);
   }
@@ -678,13 +733,13 @@ function createInvoice(sendWA){
 btnExportCSV.addEventListener('click', ()=> {
   const lines = ['Name,Phone,Points Balance,Invoice,Date,Original Amount,Amount Paid,Points Redeemed,Points Earned,Notes'];
   state.customers.forEach(c=>{
-    const balance = Number(c.pointsBalance || 0);
+    const balance = floorPoints(c.pointsBalance || 0);
     if(c.transactions && c.transactions.length){
       c.transactions.forEach(t=>{
-        lines.push(`"${c.name}","${c.phone || ''}","${balance.toFixed(2)}","${t.invoice || ''}","${t.date || ''}","${Number(t.originalAmount||t.amount||0).toFixed(2)}","${Number(t.amount||0).toFixed(2)}","${Number(t.pointsRedeemed||0).toFixed(2)}","${Number(t.pointsEarned||0).toFixed(2)}","${t.notes || ''}"`);
+        lines.push(`"${c.name}","${c.phone || ''}","${formatPoints(balance)}","${t.invoice || ''}","${t.date || ''}","${Number(t.originalAmount||t.amount||0).toFixed(2)}","${Number(t.amount||0).toFixed(2)}","${formatPoints(t.pointsRedeemed||0)}","${formatPoints(t.pointsEarned||0)}","${t.notes || ''}"`);
       });
     } else {
-      lines.push(`"${c.name}","${c.phone || ''}","${balance.toFixed(2)}","","","","","","",""`);
+      lines.push(`"${c.name}","${c.phone || ''}","${formatPoints(balance)}","","","","","","",""`);
     }
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -711,8 +766,8 @@ function renderInvoices(){
     const div = document.createElement('div'); div.className='invoice-item ' + (inv.status === 'paid' ? 'paid' : 'unpaid');
     const left = document.createElement('div'); left.style.flex='1';
     const loyaltyDetails = [];
-    if(inv.redeemedPoints){ loyaltyDetails.push(`Redeemed ${Number(inv.redeemedPoints).toFixed(2)} pts`); }
-    if(inv.pointsEarned){ loyaltyDetails.push(`Earned ${Number(inv.pointsEarned).toFixed(2)} pts`); }
+    if(inv.redeemedPoints){ loyaltyDetails.push(`Redeemed ${formatPoints(inv.redeemedPoints)} pts`); }
+    if(inv.pointsEarned){ loyaltyDetails.push(`Earned ${formatPoints(inv.pointsEarned)} pts`); }
     const loyaltyHtml = loyaltyDetails.length ? `<div class="small">Points: ${loyaltyDetails.join(' • ')}</div>` : '';
     const originalHtml = (inv.originalAmount && Math.abs(Number(inv.originalAmount) - Number(inv.amount)) > 0.009)
       ? `<div class="small">Original: R ${Number(inv.originalAmount).toFixed(2)}</div>`
@@ -795,7 +850,7 @@ function sendInvoiceWA(invId){
   if(inv.status !== 'unpaid') return showToast('Resend is allowed only for Unpaid invoices', true);
   const c = state.customers.find(x=> x.id === inv.customerId); if(!c || !c.phoneStored) return showToast('Customer phone missing', true);
   const commentLine = inv.notes ? `\nComments: ${inv.notes}` : '';
-  const pointsLine = `\nPoints balance: ${(Number(c.pointsBalance||0)).toFixed(2)} pts`;
+  const pointsLine = `\nPoints balance: ${formatPoints(c.pointsBalance||0)} pts`;
   const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number}.\nAmount due: R${Number(inv.amount).toFixed(2)}.${commentLine}${pointsLine}`;
   openWhatsAppDesktop(c.phoneStored, text);
   showToast('Invoice message opened in WhatsApp');
