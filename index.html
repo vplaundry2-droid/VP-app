@@ -280,7 +280,34 @@ function uid(pref='id'){ return pref + '_' + Math.random().toString(36).slice(2,
 function monthKey(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 function nowISO(){ return new Date().toISOString(); }
 function fmtDate(iso){ return iso ? (new Date(iso)).toLocaleString() : ''; }
-function num(value, fallback=0){ const n = Number(value); return Number.isFinite(n) ? n : fallback; }
+function num(value, fallback=0){
+  if(value === null || value === undefined) return fallback;
+  if(typeof value === 'number'){ return Number.isFinite(value) ? value : fallback; }
+  if(typeof value === 'string'){
+    const trimmed = value.trim();
+    if(trimmed){
+      const cleaned = trimmed.replace(/[^0-9,.-]/g, '');
+      if(cleaned){
+        const lastComma = cleaned.lastIndexOf(',');
+        const lastDot = cleaned.lastIndexOf('.');
+        let normalized = cleaned;
+        if(lastComma !== -1 && lastDot !== -1){
+          if(lastComma > lastDot){
+            normalized = cleaned.replace(/\./g, '').replace(/,/g, '.');
+          } else {
+            normalized = cleaned.replace(/,/g, '');
+          }
+        } else if(lastComma !== -1){
+          normalized = cleaned.replace(/,/g, '.');
+        }
+        const parsed = Number(normalized);
+        if(Number.isFinite(parsed)) return parsed;
+      }
+    }
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
 function floorPoints(value){ return Math.max(0, Math.floor(num(value, 0))); }
 function formatPoints(value){ return String(floorPoints(value)); }
 // Accepts 0XXXXXXXXX or 27XXXXXXXXX, always stores as 27XXXXXXXXX
@@ -562,10 +589,19 @@ function allocatePointsFromInvoices(c, opts={}){
   const silent = !!opts.silent;
   const updateUi = opts.updateUi !== false;
   const skipSave = !!opts.skipSave;
-  const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
-  if(!invoices.length){
+  const allInvoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
+  if(!allInvoices.length){
     if(!silent) showToast('No invoices found for this customer', true);
-    return 'no_invoices';
+    return false;
+  }
+  const invoices = allInvoices.filter(inv => {
+    const raw = typeof inv.status === 'string' ? inv.status : (inv.status || 'paid');
+    const status = (raw || 'paid').toString().toLowerCase();
+    return status === 'paid' || status === 'settled' || status === 'complete' || status === 'completed';
+  });
+  if(!invoices.length){
+    if(!silent) showToast('No paid invoices found for this customer', true);
+    return false;
   }
   const sorted = invoices.slice().sort((a,b)=> {
     const ta = a.date ? new Date(a.date).getTime() : 0;
@@ -694,7 +730,7 @@ function createInvoice(sendWA){
   const finalAmount = Math.max(0, amt - redeem);
   const earnedRaw = finalAmount * LOYALTY_RATE;
   const earned = floorPoints(earnedRaw);
-  c.pointsBalance = floorPoints(Math.max(0, available - redeem + earned));
+  c.pointsBalance = floorPoints(Math.max(0, available - redeem));
 
   const inv = {
     id: uid('inv'),
@@ -715,7 +751,7 @@ function createInvoice(sendWA){
   };
   state.invoices = state.invoices || []; state.invoices.push(inv);
   c.transactions = c.transactions || [];
-  c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: finalAmount, originalAmount: amt, pointsRedeemed: redeem, pointsEarned: earned, notes });
+  c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: finalAmount, originalAmount: amt, pointsRedeemed: redeem, pointsEarned: 0, notes });
 
   saveAll(); renderPoints(c); renderTransactionsForCustomer(c); renderCustomerList(); renderInvoices();
   inputAmount.value=''; inputNotes.value=''; inputInvoiceNumber.value='';
@@ -835,9 +871,15 @@ function openPaymentModal(invId){
   btnConfirm.onclick = ()=> {
     const method = sel.value;
     inv.status = 'paid'; inv.paymentMethod = method; inv.paidAt = nowISO();
-    saveAll(); renderInvoices(); showToast('Invoice marked paid');
-    backdrop.remove();
+    saveAll();
     const c = state.customers.find(x=> x.id === inv.customerId);
+    if(c){
+      allocatePointsFromInvoices(c, { silent:true });
+    } else {
+      renderInvoices();
+    }
+    showToast('Invoice marked paid');
+    backdrop.remove();
     if(c && c.phoneStored){
       const text = `Thank you, we have received your payment of R${Number(inv.amount).toFixed(2)} for Invoice #${inv.number}.\nPayment method: ${method}.\nPlease rate our service from 1 (poor) to 5 (excellent) by replying with your rating.\n\nGreetings,\nVP Laundry.`;
       openWhatsAppDesktop(c.phoneStored, text);
