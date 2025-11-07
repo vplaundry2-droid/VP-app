@@ -580,7 +580,7 @@ function allocatePointsFromInvoices(c, opts={}){
   const silent = !!opts.silent;
   const updateUi = opts.updateUi !== false;
   const skipSave = !!opts.skipSave;
-  const includeUnpaid = !!opts.includeUnpaid;
+  const includeUnpaid = opts.includeUnpaid !== false;
   const allInvoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
   if(!allInvoices.length){
     if(!silent) showToast('No invoices found for this customer', true);
@@ -653,7 +653,7 @@ function allocatePointsFromInvoices(c, opts={}){
 
 function rebuildAllPointsFromInvoices(opts={}){
   const customers = state.customers || [];
-  const includeUnpaid = !!opts.includeUnpaid;
+  const includeUnpaid = opts.includeUnpaid !== false;
   const resetBefore = !!opts.resetBefore;
   let anyChanged = false;
   customers.forEach(c => {
@@ -729,7 +729,7 @@ function createInvoice(sendWA){
   const finalAmount = Math.max(0, amt - redeem);
   const earnedRaw = finalAmount * LOYALTY_RATE;
   const earned = floorPoints(earnedRaw);
-  c.pointsBalance = floorPoints(Math.max(0, available - redeem));
+  c.pointsBalance = floorPoints(Math.max(0, available - redeem) + earned);
 
   const inv = {
     id: uid('inv'),
@@ -750,7 +750,7 @@ function createInvoice(sendWA){
   };
   state.invoices = state.invoices || []; state.invoices.push(inv);
   c.transactions = c.transactions || [];
-  c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: finalAmount, originalAmount: amt, pointsRedeemed: redeem, pointsEarned: 0, notes });
+  c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: finalAmount, originalAmount: amt, pointsRedeemed: redeem, pointsEarned: earned, notes });
 
   saveAll(); renderPoints(c); renderTransactionsForCustomer(c); renderCustomerList(); renderInvoices();
   inputAmount.value=''; inputNotes.value=''; inputInvoiceNumber.value='';
