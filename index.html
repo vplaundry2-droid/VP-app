@@ -43,7 +43,8 @@
   .invoice-item{padding:10px;border-radius:8px;border:1px solid #f0f2f1;background:#fff;display:flex;justify-content:space-between;align-items:center}
   .invoice-item.unpaid{border-left:6px solid #f59e0b}
   .invoice-item.paid{border-left:6px solid #10b981;background:#f0ffef}
-  .voucher{background:#f0fff4;border:1px solid #bfeecf;padding:6px;border-radius:6px}
+  .points-badge{background:#f0fff4;border:1px solid #bfeecf;padding:6px 10px;border-radius:6px;font-weight:700;color:var(--emerald)}
+  .points-box{background:#f0fff4;border:1px solid #bfeecf;padding:16px;border-radius:10px;font-weight:700;font-size:20px;display:flex;justify-content:center;align-items:center;color:var(--emerald)}
   .modal-backdrop{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000}
   .modal{background:#fff;padding:18px;border-radius:10px;width:420px;box-shadow:0 20px 40px rgba(0,0,0,0.25)}
   .note{font-size:12px;color:var(--muted);margin-top:8px}
@@ -121,7 +122,7 @@
               <div class="small" id="custPhoneTitle"></div>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
-              <div id="voucherSummary" class="voucher small">No vouchers</div>
+              <div id="pointsSummary" class="points-badge">0 pts</div>
               <button id="btnWelcomeWA" class="btn ghost">Send Welcome</button>
               <button id="btnEditCustomer" class="btn ghost">Edit</button>
               <button id="btnDeleteCustomer" class="btn ghost danger">Delete</button>
@@ -156,15 +157,12 @@
                 <button id="btnExportCSV" class="btn ghost">Export CSV</button>
               </div>
 
-              <div class="note">Spend ≥ R200 earns 1 stamp (max 1 per visit). 10 stamps → R200 voucher (30 days).</div>
+              <div class="note">Earn 5% back in loyalty points on every invoice.</div>
             </div>
 
             <div style="width:320px">
-              <label>Stamps</label>
-              <div id="stampsDisplay" style="margin-top:8px"></div>
-
-              <label style="margin-top:12px">Vouchers</label>
-              <div id="voucherList" style="margin-top:8px"></div>
+              <label>Points Balance</label>
+              <div id="pointsDisplay" class="points-box" style="margin-top:8px">0 pts</div>
             </div>
           </div>
 
@@ -240,10 +238,8 @@
 <script>
 const STORAGE_KEY = 'vaalpark_windows_v1';
 const TEST_WA_NUMBER = '27662936777';
-const LOYALTY_THRESHOLD = 200;
-const STAMPS_REQUIRED = 10;
-const VOUCHER_VALUE = 200;
-const VOUCHER_EXPIRY_DAYS = 30;
+const POINTS_RATE = 0.05;
+const LEGACY_STAMP_POINT_VALUE = 20; // Previous programme: 10 stamps → R200 voucher
 
 let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || { customers: [], invoices: [], ratings: [] };
 
@@ -282,12 +278,12 @@ const btnBackup = document.getElementById('btnBackup'), btnRestore = document.ge
 const noCustomerSelected = document.getElementById('noCustomerSelected'), customerPanel = document.getElementById('customerPanel');
 const custNameTitle = document.getElementById('custNameTitle'), custPhoneTitle = document.getElementById('custPhoneTitle');
 const btnWelcomeWA = document.getElementById('btnWelcomeWA'), btnEditCustomer = document.getElementById('btnEditCustomer'), btnDeleteCustomer = document.getElementById('btnDeleteCustomer');
-const voucherSummary = document.getElementById('voucherSummary');
+const pointsSummary = document.getElementById('pointsSummary');
 
 const selectService = document.getElementById('selectService'), inputAmount = document.getElementById('inputAmount'), inputNotes = document.getElementById('inputNotes');
 const inputInvoiceNumber = document.getElementById('inputInvoiceNumber');
 const btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
-const stampsDisplay = document.getElementById('stampsDisplay'), voucherList = document.getElementById('voucherList'), txTableBody = document.getElementById('txTableBody');
+const pointsDisplay = document.getElementById('pointsDisplay'), txTableBody = document.getElementById('txTableBody');
 
 const invoicesPanel = document.getElementById('invoicesPanel'), invoiceSearch = document.getElementById('invoiceSearch'), btnRefreshInv = document.getElementById('btnRefreshInv'), btnDeletePaid = document.getElementById('btnDeletePaid');
 const unpaidList = document.getElementById('unpaidList'), paidList = document.getElementById('paidList');
@@ -366,14 +362,14 @@ btnAddCustomer.addEventListener('click', ()=> {
     const existing = state.customers.find(c=> normalizePhone(c.phone)===normalized); 
     return showToast(`Phone already exists for ${existing.name}`, true); 
   }
-  const c = { id: uid('cust'), name, phone: phoneRaw, phoneStored: normalized, stamps:0, vouchers:[], transactions:[], welcomeSent:false };
+  const c = { id: uid('cust'), name, phone: phoneRaw, phoneStored: normalized, points:0, transactions:[], welcomeSent:false };
   state.customers.push(c); saveAll(); inputName.value=''; inputPhone.value=''; renderCustomerList(); openCustomer(c.id); showToast('Customer added');
 });
 
 btnClearAll.addEventListener('click', ()=> {
   if(!confirm('Clear all data? This will remove customers, invoices and ratings.')) return;
   state = { customers: [], invoices: [], ratings: [] }; saveAll(); currentCustomerId=null;
-  renderCustomerList(); renderInvoices(); renderRatingsUI(); customerPanel.style.display='none'; noCustomerSelected.style.display='block'; showToast('All data cleared');
+  renderCustomerList(); renderInvoices(); renderRatingsUI(); customerPanel.style.display='none'; noCustomerSelected.style.display='block'; renderPointsDisplay({ points: 0 }); showToast('All data cleared');
 });
 
 inputSearchCustomer.addEventListener('input', renderCustomerList);
@@ -388,7 +384,7 @@ function renderCustomerList(){
     const div = document.createElement('div'); div.className='customer-row';
     div.innerHTML = `<div style="display:flex;gap:10px;align-items:center">
         <div style="width:44px;height:44px;border-radius:8px;background:rgba(80,200,120,0.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--emerald)">${(c.name||'?').charAt(0).toUpperCase()}</div>
-        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Stamps: ${c.stamps||0}</div></div>
+        <div><div style="font-weight:700">${escapeHtml(c.name)}</div><div class="small">${escapeHtml(c.phone||'')} • Points: ${formatPoints(c.points)} pts</div></div>
       </div>
       <div class="actions">
         <button data-open="${c.id}">Open</button>
@@ -407,7 +403,7 @@ function openCustomer(id){
   const c = state.customers.find(x=>x.id===id); if(!c) return;
   currentCustomerId = id; custNameTitle.textContent = c.name; custPhoneTitle.textContent = c.phone || '';
   customerPanel.style.display = 'block'; noCustomerSelected.style.display='none';
-  renderStampDisplay(c); renderTransactionsForCustomer(c); renderVouchers(c); renderCustomerList();
+  renderPointsDisplay(c); renderTransactionsForCustomer(c); renderCustomerList();
   btnWelcomeWA.style.display = c.welcomeSent ? 'none' : 'inline-block';
 }
 
@@ -430,7 +426,7 @@ function deleteCustomer(id){
   state.customers = state.customers.filter(x=> x.id !== id);
   state.ratings = (state.ratings||[]).filter(r=> r.customerId !== id);
   saveAll(); currentCustomerId = null; customerPanel.style.display='none'; noCustomerSelected.style.display='block';
-  renderCustomerList(); renderInvoices(); renderRatingsUI(); showToast('Customer deleted');
+  renderCustomerList(); renderInvoices(); renderRatingsUI(); renderPointsDisplay({ points: 0 }); showToast('Customer deleted');
 }
 
 btnWelcomeWA.addEventListener('click', ()=> {
@@ -441,25 +437,20 @@ btnWelcomeWA.addEventListener('click', ()=> {
   c.welcomeSent = true; saveAll(); btnWelcomeWA.style.display='none'; showToast('Welcome message opened in WhatsApp');
 });
 
-function renderStampDisplay(c){
-  const wrap = document.getElementById('stampsDisplay'); wrap.innerHTML = '';
-  for(let i=1;i<=STAMPS_REQUIRED;i++){
-    const d = document.createElement('div'); d.style.display='inline-block'; d.style.width='26px'; d.style.height='26px'; d.style.borderRadius='6px'; d.style.marginRight='6px'; d.style.textAlign='center'; d.style.lineHeight='26px'; d.style.fontWeight='700';
-    if(i <= (c.stamps||0)){ d.style.background = 'var(--emerald)'; d.style.color='#fff'; d.textContent='✓'; } else { d.style.background = '#eee'; d.textContent=''; }
-    wrap.appendChild(d);
-  }
+function normalizePoints(value){
+  const num = Number(value);
+  if(!Number.isFinite(num)) return 0;
+  return Math.round(num * 100) / 100;
 }
 
-function renderVouchers(c){
-  voucherList.innerHTML = '';
-  const now = new Date();
-  c.vouchers = (c.vouchers||[]).map(v => { if(!v.redeemed && v.expiresAt && new Date(v.expiresAt) < now) v.expired = true; return v; });
-  const active = (c.vouchers||[]).filter(v=> !v.redeemed && !v.expired);
-  const expired = (c.vouchers||[]).filter(v=> v.expired && !v.redeemed);
-  if(active.length===0 && expired.length===0){ voucherList.innerHTML = '<div class="small">No vouchers</div>'; voucherSummary.textContent = 'No vouchers'; return; }
-  active.forEach(v => { const div = document.createElement('div'); div.className='voucher'; div.innerHTML = `<strong>R ${v.value}</strong> • ${v.code} <div class="small">Expires: ${new Date(v.expiresAt).toLocaleDateString()}</div>`; voucherList.appendChild(div); });
-  expired.forEach(v => { const div = document.createElement('div'); div.className='small'; div.style.color='var(--danger)'; div.textContent = `Expired • ${v.code} (Expired: ${new Date(v.expiresAt).toLocaleDateString()})`; voucherList.appendChild(div); });
-  voucherSummary.textContent = active.length ? `${active.length} available` : 'No vouchers';
+function formatPoints(value){
+  return normalizePoints(value).toFixed(2);
+}
+
+function renderPointsDisplay(c){
+  const pts = formatPoints(c && c.points);
+  if(pointsSummary) pointsSummary.textContent = `${pts} pts`;
+  if(pointsDisplay) pointsDisplay.textContent = `${pts} pts`;
 }
 
 function renderTransactionsForCustomer(c){
@@ -483,51 +474,35 @@ function createInvoice(sendWA){
   if(!invNum) return showToast('Enter invoice number', true);
   if(state.invoices.some(inv => String(inv.number) === invNum)) return showToast('Invoice number already exists', true);
 
-  cleanupExpiredVouchersAll();
-  let voucherAppliedValue = 0;
-  const activeV = (c.vouchers||[]).find(v=> !v.redeemed && !v.expired);
-  if(activeV){ voucherAppliedValue = activeV.value; activeV.redeemed = true; activeV.redeemedAt = nowISO(); }
-  const finalAmount = Math.max(0, amt - voucherAppliedValue);
-
-  if(finalAmount >= LOYALTY_THRESHOLD){
-    c.stamps = (c.stamps || 0) + 1;
-    if(c.stamps >= STAMPS_REQUIRED){
-      c.stamps = c.stamps - STAMPS_REQUIRED;
-      const code = 'V' + Math.random().toString(36).substr(2,8).toUpperCase();
-      const expires = new Date(); expires.setDate(expires.getDate() + VOUCHER_EXPIRY_DAYS);
-      const vobj = { id: uid('vou'), code, value: VOUCHER_VALUE, issuedAt: nowISO(), expiresAt: expires.toISOString(), redeemed:false, expired:false };
-      c.vouchers = c.vouchers || []; c.vouchers.push(vobj);
-      const voucherMsg = `Congratulations! You earned a voucher: Code ${vobj.code} — R${vobj.value}. Expires: ${new Date(vobj.expiresAt).toLocaleDateString()}.`;
-      openWhatsAppDesktop(c.phoneStored, voucherMsg);
-      showToast(`Voucher created: ${vobj.code}`);
-    }
-  }
+  const pointsEarned = normalizePoints(amt * POINTS_RATE);
+  c.points = normalizePoints((c.points || 0) + pointsEarned);
 
   const inv = { id: uid('inv'), number: invNum, date: nowISO(), customerId: c.id, customerName: c.name, amount: amt, service, notes, status:'unpaid', paymentMethod:null, paidAt:null, readyNotified:false };
   state.invoices = state.invoices || []; state.invoices.push(inv);
-  c.transactions = c.transactions || []; c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: amt, notes });
+  c.transactions = c.transactions || []; c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: amt, notes, pointsEarned });
 
-  saveAll(); renderStampDisplay(c); renderVouchers(c); renderTransactionsForCustomer(c); renderCustomerList(); renderInvoices();
+  saveAll(); renderPointsDisplay(c); renderTransactionsForCustomer(c); renderCustomerList(); renderInvoices();
   inputAmount.value=''; inputNotes.value=''; inputInvoiceNumber.value='';
 
-  if(sendWA){ 
-    const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number} has been created.\nAmount: R${inv.amount.toFixed(2)}.\nStatus: Unpaid.\nYou currently have ${c.stamps || 0} out of ${STAMPS_REQUIRED} stamps.`;
+  if(sendWA){
+    const balance = formatPoints(c.points);
+    const earned = formatPoints(pointsEarned);
+    const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number} has been created.\nAmount: R${inv.amount.toFixed(2)}.\nStatus: Unpaid.\nPoints earned: ${earned} pts.\nCurrent balance: ${balance} pts.`;
     openWhatsAppDesktop(c.phoneStored, text);
   }
   showToast('Invoice created');
 }
 
 btnExportCSV.addEventListener('click', ()=> {
-  const lines = ['Name,Phone,Stamps,Vouchers,Invoice,Date,Amount,Notes'];
+  const lines = ['Name,Phone,Points,Invoice,Date,Amount,Notes'];
   state.customers.forEach(c=>{
+    const pts = formatPoints(c.points);
     if(c.transactions && c.transactions.length){
       c.transactions.forEach(t=>{
-        const vstr = (c.vouchers||[]).map(v=>v.code+(v.redeemed? '(R)':'')).join('|');
-        lines.push(`"${c.name}","${c.phone || ''}","${c.stamps || 0}","${vstr}","${t.invoice || ''}","${t.date || ''}","${Number(t.amount).toFixed(2)}","${t.notes || ''}"`);
+        lines.push(`"${c.name}","${c.phone || ''}","${pts}","${t.invoice || ''}","${t.date || ''}","${Number(t.amount).toFixed(2)}","${t.notes || ''}"`);
       });
     } else {
-      const vstr = (c.vouchers||[]).map(v=>v.code+(v.redeemed? '(R)':'')).join('|');
-      lines.push(`"${c.name}","${c.phone || ''}","${c.stamps || 0}","${vstr}","","","",""`);
+      lines.push(`"${c.name}","${c.phone || ''}","${pts}","","","",""`);
     }
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -625,7 +600,8 @@ function sendInvoiceWA(invId){
   if(inv.status !== 'unpaid') return showToast('Resend is allowed only for Unpaid invoices', true);
   const c = state.customers.find(x=> x.id === inv.customerId); if(!c || !c.phoneStored) return showToast('Customer phone missing', true);
   const commentLine = inv.notes ? `\nComments: ${inv.notes}` : '';
-  const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number}.\nAmount: R${Number(inv.amount).toFixed(2)}.\nStatus: Unpaid.\nYou currently have ${c.stamps || 0} out of ${STAMPS_REQUIRED} stamps.${commentLine}`;
+  const balance = formatPoints(c.points);
+  const text = `Hello ${firstName(c.name)}, your Vaalpark Laundry invoice #${inv.number}.\nAmount: R${Number(inv.amount).toFixed(2)}.\nStatus: Unpaid.\nCurrent points balance: ${balance} pts.${commentLine}`;
   openWhatsAppDesktop(c.phoneStored, text);
   showToast('Invoice message opened in WhatsApp');
 }
@@ -649,11 +625,6 @@ function openWhatsAppDesktop(phone, message){
   } catch(e){
     window.open(waWebUrl, '_blank');
   }
-}
-
-function cleanupExpiredVouchersAll(){
-  const now = new Date();
-  state.customers.forEach(c=> { (c.vouchers||[]).forEach(v => { if(!v.redeemed && v.expiresAt && new Date(v.expiresAt) < now) v.expired = true; }); });
 }
 
 function renderRatingsUI(){
@@ -682,11 +653,27 @@ btnTestWA.addEventListener('click', ()=> {
 });
 
 function renderState(){
-  cleanupExpiredVouchersAll();
+  state.customers.forEach(c=> {
+    if(c.points === undefined || c.points === null){
+      const stampValue = Number(c.stamps || 0) * LEGACY_STAMP_POINT_VALUE;
+      const voucherValue = Array.isArray(c.vouchers) ? c.vouchers.filter(v=> !v.redeemed && !v.expired).reduce((sum,v)=> sum + Number(v.value || 0), 0) : 0;
+      c.points = normalizePoints(stampValue + voucherValue);
+    } else {
+      c.points = normalizePoints(c.points);
+    }
+  });
   renderCustomerList();
   renderInvoices();
   renderRatingsUI();
-  if(state.customers.length && !currentCustomerId) { openCustomer(state.customers[0].id); }
+  if(currentCustomerId){
+    const active = state.customers.find(c=> c.id === currentCustomerId);
+    if(active) renderPointsDisplay(active);
+    else renderPointsDisplay({ points: 0 });
+  } else if(state.customers.length) {
+    openCustomer(state.customers[0].id);
+  } else {
+    renderPointsDisplay({ points: 0 });
+  }
 }
 renderState();
 
