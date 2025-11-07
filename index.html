@@ -172,8 +172,6 @@
               <label>Points Balance</label>
               <div id="pointsBalanceDisplay" style="margin-top:8px;font-size:28px;font-weight:700">0 pts</div>
               <div class="small" style="margin-top:6px">Points never expire and can be redeemed anytime.</div>
-              <button id="btnAllocatePoints" class="btn ghost" style="margin-top:12px;width:100%">Allocate points from invoices</button>
-              <div class="note">Use this to rebuild loyalty points using all invoices on file for this customer.</div>
             </div>
           </div>
 
@@ -318,7 +316,6 @@ const inputInvoiceNumber = document.getElementById('inputInvoiceNumber');
 const inputRedeemPoints = document.getElementById('inputRedeemPoints');
 const btnRedeemAll = document.getElementById('btnRedeemAll');
 const btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
-const btnAllocatePoints = document.getElementById('btnAllocatePoints');
 const pointsBalanceDisplay = document.getElementById('pointsBalanceDisplay'), txTableBody = document.getElementById('txTableBody');
 if(pointsSummary){ pointsSummary.innerHTML = '0 pts <span>available</span>'; }
 if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0 pts'; }
@@ -332,15 +329,6 @@ const ratingsTableBody = document.getElementById('ratingsTableBody'), avgRatingE
 const modalRoot = document.getElementById('modalRoot');
 
 let currentCustomerId = null;
-
-if(btnAllocatePoints){
-  btnAllocatePoints.addEventListener('click', ()=> {
-    if(!currentCustomerId) return showToast('Select a customer', true);
-    const c = state.customers.find(x=> x.id === currentCustomerId);
-    if(!c) return showToast('Customer not found', true);
-    allocatePointsFromInvoices(c, { silent:false });
-  });
-}
 
 tabDashboard.addEventListener('click', ()=> showTab('dashboard'));
 tabInvoices.addEventListener('click', ()=> showTab('invoices'));
@@ -387,7 +375,7 @@ restoreFileInput.addEventListener('change', function(e) {
           state = imported;
           currentCustomerId = null;
           migrateStateToPoints();
-          rebuildAllPointsFromInvoices({ updateUi:false, includeUnpaid:true, resetBefore:true });
+          saveAll();
           renderState();
           showToast('Data restored from backup');
         }
@@ -440,7 +428,6 @@ function renderCustomerList(){
       </div>
       <div class="actions">
         <button data-open="${c.id}">Open</button>
-        <button data-recalc="${c.id}">Recalculate</button>
         <button data-edit="${c.id}">Edit</button>
         <button data-delete="${c.id}" style="color:var(--danger)">Delete</button>
       </div>`;
@@ -448,7 +435,6 @@ function renderCustomerList(){
   });
 
   customersListEl.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openCustomer(b.dataset.open)));
-  customersListEl.querySelectorAll('[data-recalc]').forEach(b=> b.addEventListener('click', ()=> recalcCustomerPoints(b.dataset.recalc)));
   customersListEl.querySelectorAll('[data-edit]').forEach(b=> b.addEventListener('click', ()=> editCustomer(b.dataset.edit)));
   customersListEl.querySelectorAll('[data-delete]').forEach(b=> b.addEventListener('click', ()=> deleteCustomer(b.dataset.delete)));
 }
@@ -458,38 +444,8 @@ function openCustomer(id){
   currentCustomerId = id; custNameTitle.textContent = c.name; custPhoneTitle.textContent = c.phone || '';
   if(inputRedeemPoints){ inputRedeemPoints.dataset.userEdited=''; inputRedeemPoints.value=''; }
   customerPanel.style.display = 'block'; noCustomerSelected.style.display='none';
-  autoAllocatePointsForCustomer(c);
   renderPoints(c); renderTransactionsForCustomer(c); renderCustomerList();
   btnWelcomeWA.style.display = c.welcomeSent ? 'none' : 'inline-block';
-}
-
-function recalcCustomerPoints(id){
-  const c = state.customers.find(x=> x.id === id);
-  if(!c) return showToast('Customer not found', true);
-  const changed = allocatePointsFromInvoices(c, { silent:true, updateUi:false });
-  if(changed){
-    showToast(`Points recalculated: ${formatPoints(c.pointsBalance||0)} pts`);
-  } else {
-    showToast('Points were already up to date');
-  }
-  if(currentCustomerId === id){
-    renderPoints(c);
-    renderTransactionsForCustomer(c);
-  }
-  renderCustomerList();
-}
-
-function autoAllocatePointsForCustomer(c){
-  const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
-  if(!invoices.length) return false;
-  const hasTransactions = Array.isArray(c.transactions) && c.transactions.length > 0;
-  const expectedBalance = floorPoints(invoices.reduce((sum,inv)=> sum + floorPoints(inv.pointsEarned) - floorPoints(inv.redeemedPoints), 0));
-  const storedBalance = floorPoints(c.pointsBalance);
-  if(!hasTransactions || expectedBalance !== storedBalance){
-    allocatePointsFromInvoices(c, { silent:true });
-    return true;
-  }
-  return false;
 }
 
 function editCustomer(id){
@@ -574,117 +530,6 @@ if(btnRedeemAll){
     inputRedeemPoints.value = formatPoints(available);
     inputRedeemPoints.dataset.userEdited='true';
   });
-}
-
-function allocatePointsFromInvoices(c, opts={}){
-  const silent = !!opts.silent;
-  const updateUi = opts.updateUi !== false;
-  const skipSave = !!opts.skipSave;
-  const includeUnpaid = opts.includeUnpaid !== false;
-  const allInvoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
-  if(!allInvoices.length){
-    if(!silent) showToast('No invoices found for this customer', true);
-    return false;
-  }
-  const invoices = includeUnpaid ? allInvoices : allInvoices.filter(inv => (inv.status || 'paid') === 'paid');
-  if(!invoices.length){
-    if(!silent) showToast('No paid invoices found for this customer', true);
-    return false;
-  }
-  const sorted = invoices.slice().sort((a,b)=> {
-    const ta = a.date ? new Date(a.date).getTime() : 0;
-    const tb = b.date ? new Date(b.date).getTime() : 0;
-    return ta - tb;
-  });
-  const transactions = [];
-  let balance = 0;
-  sorted.forEach(inv => {
-    const original = num(inv.originalAmount, num(inv.amount, 0));
-    let redeemed = floorPoints(inv.redeemedPoints);
-    let finalAmount = num(inv.amount, Math.max(0, original - redeemed));
-    if(finalAmount < 0) finalAmount = 0;
-    let earned = floorPoints(inv.pointsEarned);
-    if(!Number.isFinite(earned) || earned < 0){
-      earned = floorPoints(finalAmount * LOYALTY_RATE);
-    }
-    inv.pointsEarned = earned;
-    inv.originalAmount = original;
-    inv.redeemedPoints = redeemed;
-    balance += earned;
-    balance -= redeemed;
-    transactions.push({
-      id: uid('tx'),
-      date: inv.date || nowISO(),
-      invoice: inv.number,
-      service: inv.service,
-      amount: finalAmount,
-      originalAmount: original,
-      pointsRedeemed: redeemed,
-      pointsEarned: earned,
-      notes: inv.notes || ''
-    });
-  });
-  balance = floorPoints(balance);
-  const beforeBalance = floorPoints(c.pointsBalance);
-  const beforeCount = Array.isArray(c.transactions) ? c.transactions.length : 0;
-  c.transactions = transactions;
-  c.pointsBalance = balance;
-  if(!skipSave){
-    saveAll();
-  }
-  if(updateUi){
-    renderPoints(c);
-    if(currentCustomerId === c.id){
-      renderTransactionsForCustomer(c);
-      if(inputRedeemPoints){ inputRedeemPoints.dataset.userEdited=''; inputRedeemPoints.value=''; }
-    }
-    renderCustomerList();
-    renderInvoices();
-  }
-  const changed = beforeBalance !== balance || beforeCount !== transactions.length;
-  if(!silent){
-    const msg = changed
-      ? `Points updated to ${formatPoints(balance)} pts (was ${formatPoints(beforeBalance)} pts)`
-      : 'Points were already up to date';
-    showToast(msg, false);
-  }
-  return changed;
-}
-
-function rebuildAllPointsFromInvoices(opts={}){
-  const customers = state.customers || [];
-  const includeUnpaid = opts.includeUnpaid !== false;
-  const resetBefore = !!opts.resetBefore;
-  let anyChanged = false;
-  customers.forEach(c => {
-    if(resetBefore){
-      const hadBalance = floorPoints(c.pointsBalance);
-      const hadTransactions = Array.isArray(c.transactions) && c.transactions.length > 0;
-      if(hadBalance || hadTransactions){
-        anyChanged = true;
-      }
-      c.pointsBalance = 0;
-      c.transactions = [];
-    }
-    const changed = allocatePointsFromInvoices(c, { silent:true, updateUi:false, skipSave:true, includeUnpaid });
-    if(changed) anyChanged = true;
-  });
-  saveAll();
-  if(opts.updateUi !== false){
-    renderCustomerList();
-    renderInvoices();
-    if(currentCustomerId){
-      const current = state.customers.find(x=> x.id === currentCustomerId);
-      if(current){
-        renderPoints(current);
-        renderTransactionsForCustomer(current);
-      }
-    }
-  }
-  if(opts.showToast && anyChanged){
-    showToast('Loyalty points rebuilt');
-  }
-  return anyChanged;
 }
 
 function renderTransactionsForCustomer(c){
@@ -872,10 +717,11 @@ function openPaymentModal(invId){
     inv.status = 'paid'; inv.paymentMethod = method; inv.paidAt = nowISO();
     saveAll();
     const c = state.customers.find(x=> x.id === inv.customerId);
-    if(c){
-      allocatePointsFromInvoices(c, { silent:true });
-    } else {
-      renderInvoices();
+    renderInvoices();
+    renderCustomerList();
+    if(c && currentCustomerId === c.id){
+      renderTransactionsForCustomer(c);
+      renderPoints(c);
     }
     showToast('Invoice marked paid');
     backdrop.remove();
