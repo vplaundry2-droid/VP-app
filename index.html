@@ -167,6 +167,8 @@
               <label>Points Balance</label>
               <div id="pointsBalanceDisplay" style="margin-top:8px;font-size:28px;font-weight:700">0.00 pts</div>
               <div class="small" style="margin-top:6px">Points never expire and can be redeemed anytime.</div>
+              <button id="btnAllocatePoints" class="btn ghost" style="margin-top:12px;width:100%">Allocate points from invoices</button>
+              <div class="note">Use this to rebuild loyalty points using all invoices on file for this customer.</div>
             </div>
           </div>
 
@@ -273,6 +275,7 @@ function uid(pref='id'){ return pref + '_' + Math.random().toString(36).slice(2,
 function monthKey(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 function nowISO(){ return new Date().toISOString(); }
 function fmtDate(iso){ return iso ? (new Date(iso)).toLocaleString() : ''; }
+function num(value, fallback=0){ const n = Number(value); return Number.isFinite(n) ? n : fallback; }
 // Accepts 0XXXXXXXXX or 27XXXXXXXXX, always stores as 27XXXXXXXXX
 function normalizePhone(s='') {
   let n = (s||'').replace(/[^\d]/g,'');
@@ -307,6 +310,7 @@ const selectService = document.getElementById('selectService'), inputAmount = do
 const inputInvoiceNumber = document.getElementById('inputInvoiceNumber');
 const inputRedeemPoints = document.getElementById('inputRedeemPoints');
 const btnCreateInvoice = document.getElementById('btnCreateInvoice'), btnCreateInvoiceNoWA = document.getElementById('btnCreateInvoiceNoWA'), btnExportCSV = document.getElementById('btnExportCSV');
+const btnAllocatePoints = document.getElementById('btnAllocatePoints');
 const pointsBalanceDisplay = document.getElementById('pointsBalanceDisplay'), txTableBody = document.getElementById('txTableBody');
 if(pointsSummary){ pointsSummary.innerHTML = '0 pts <span>available</span>'; }
 if(pointsBalanceDisplay){ pointsBalanceDisplay.textContent = '0.00 pts'; }
@@ -320,6 +324,15 @@ const ratingsTableBody = document.getElementById('ratingsTableBody'), avgRatingE
 const modalRoot = document.getElementById('modalRoot');
 
 let currentCustomerId = null;
+
+if(btnAllocatePoints){
+  btnAllocatePoints.addEventListener('click', ()=> {
+    if(!currentCustomerId) return showToast('Select a customer', true);
+    const c = state.customers.find(x=> x.id === currentCustomerId);
+    if(!c) return showToast('Customer not found', true);
+    allocatePointsFromInvoices(c, { silent:false });
+  });
+}
 
 tabDashboard.addEventListener('click', ()=> showTab('dashboard'));
 tabInvoices.addEventListener('click', ()=> showTab('invoices'));
@@ -433,8 +446,22 @@ function openCustomer(id){
   currentCustomerId = id; custNameTitle.textContent = c.name; custPhoneTitle.textContent = c.phone || '';
   if(inputRedeemPoints){ inputRedeemPoints.dataset.userEdited=''; inputRedeemPoints.value=''; }
   customerPanel.style.display = 'block'; noCustomerSelected.style.display='none';
+  autoAllocatePointsForCustomer(c);
   renderPoints(c); renderTransactionsForCustomer(c); renderCustomerList();
   btnWelcomeWA.style.display = c.welcomeSent ? 'none' : 'inline-block';
+}
+
+function autoAllocatePointsForCustomer(c){
+  const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
+  if(!invoices.length) return false;
+  const hasTransactions = Array.isArray(c.transactions) && c.transactions.length > 0;
+  const expectedBalance = Math.round(invoices.reduce((sum,inv)=> sum + num(inv.pointsEarned, 0) - num(inv.redeemedPoints, 0), 0) * 100) / 100;
+  const storedBalance = Math.round(num(c.pointsBalance, 0) * 100) / 100;
+  if(!hasTransactions || Math.abs(expectedBalance - storedBalance) > 0.009){
+    allocatePointsFromInvoices(c, { silent:true });
+    return true;
+  }
+  return false;
 }
 
 function editCustomer(id){
@@ -503,6 +530,70 @@ if(inputRedeemPoints){
       inputRedeemPoints.value = max.toFixed(2);
     }
   });
+}
+
+function allocatePointsFromInvoices(c, opts={}){
+  const silent = !!opts.silent;
+  const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
+  if(!invoices.length){
+    if(!silent) showToast('No invoices found for this customer', true);
+    return 'no_invoices';
+  }
+  const sorted = invoices.slice().sort((a,b)=> {
+    const ta = a.date ? new Date(a.date).getTime() : 0;
+    const tb = b.date ? new Date(b.date).getTime() : 0;
+    return ta - tb;
+  });
+  const transactions = [];
+  let balance = 0;
+  sorted.forEach(inv => {
+    const original = num(inv.originalAmount, num(inv.amount, 0));
+    let redeemed = num(inv.redeemedPoints, 0);
+    if(redeemed < 0) redeemed = 0;
+    let finalAmount = num(inv.amount, Math.max(0, original - redeemed));
+    if(finalAmount < 0) finalAmount = 0;
+    let earned = num(inv.pointsEarned, NaN);
+    if(!Number.isFinite(earned) || earned < 0){
+      earned = Math.round(finalAmount * LOYALTY_RATE * 100) / 100;
+      inv.pointsEarned = earned;
+    }
+    inv.originalAmount = original;
+    inv.redeemedPoints = redeemed;
+    balance += earned;
+    balance -= redeemed;
+    transactions.push({
+      id: uid('tx'),
+      date: inv.date || nowISO(),
+      invoice: inv.number,
+      service: inv.service,
+      amount: finalAmount,
+      originalAmount: original,
+      pointsRedeemed: redeemed,
+      pointsEarned: earned,
+      notes: inv.notes || ''
+    });
+  });
+  balance = Math.round(balance * 100) / 100;
+  if(balance < 0 && Math.abs(balance) < 0.009) balance = 0;
+  if(balance < 0) balance = 0;
+  const beforeBalance = num(c.pointsBalance, 0);
+  const beforeCount = Array.isArray(c.transactions) ? c.transactions.length : 0;
+  c.transactions = transactions;
+  c.pointsBalance = balance;
+  saveAll();
+  renderPoints(c);
+  renderTransactionsForCustomer(c);
+  renderCustomerList();
+  renderInvoices();
+  if(inputRedeemPoints){ inputRedeemPoints.dataset.userEdited=''; inputRedeemPoints.value=''; }
+  const changed = Math.abs(balance - beforeBalance) > 0.009 || beforeCount !== transactions.length;
+  if(!silent){
+    const msg = changed
+      ? `Points updated to ${balance.toFixed(2)} pts (was ${beforeBalance.toFixed(2)} pts)`
+      : 'Points were already up to date';
+    showToast(msg, false);
+  }
+  return changed;
 }
 
 function renderTransactionsForCustomer(c){
