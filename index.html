@@ -562,10 +562,15 @@ function allocatePointsFromInvoices(c, opts={}){
   const silent = !!opts.silent;
   const updateUi = opts.updateUi !== false;
   const skipSave = !!opts.skipSave;
-  const invoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
-  if(!invoices.length){
+  const allInvoices = (state.invoices||[]).filter(inv => inv.customerId === c.id);
+  if(!allInvoices.length){
     if(!silent) showToast('No invoices found for this customer', true);
-    return 'no_invoices';
+    return false;
+  }
+  const invoices = allInvoices.filter(inv => (inv.status || 'paid') === 'paid');
+  if(!invoices.length){
+    if(!silent) showToast('No paid invoices found for this customer', true);
+    return false;
   }
   const sorted = invoices.slice().sort((a,b)=> {
     const ta = a.date ? new Date(a.date).getTime() : 0;
@@ -694,7 +699,7 @@ function createInvoice(sendWA){
   const finalAmount = Math.max(0, amt - redeem);
   const earnedRaw = finalAmount * LOYALTY_RATE;
   const earned = floorPoints(earnedRaw);
-  c.pointsBalance = floorPoints(Math.max(0, available - redeem + earned));
+  c.pointsBalance = floorPoints(Math.max(0, available - redeem));
 
   const inv = {
     id: uid('inv'),
@@ -715,7 +720,7 @@ function createInvoice(sendWA){
   };
   state.invoices = state.invoices || []; state.invoices.push(inv);
   c.transactions = c.transactions || [];
-  c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: finalAmount, originalAmount: amt, pointsRedeemed: redeem, pointsEarned: earned, notes });
+  c.transactions.push({ id: uid('tx'), date: nowISO(), invoice: invNum, service, amount: finalAmount, originalAmount: amt, pointsRedeemed: redeem, pointsEarned: 0, notes });
 
   saveAll(); renderPoints(c); renderTransactionsForCustomer(c); renderCustomerList(); renderInvoices();
   inputAmount.value=''; inputNotes.value=''; inputInvoiceNumber.value='';
@@ -835,9 +840,15 @@ function openPaymentModal(invId){
   btnConfirm.onclick = ()=> {
     const method = sel.value;
     inv.status = 'paid'; inv.paymentMethod = method; inv.paidAt = nowISO();
-    saveAll(); renderInvoices(); showToast('Invoice marked paid');
-    backdrop.remove();
+    saveAll();
     const c = state.customers.find(x=> x.id === inv.customerId);
+    if(c){
+      allocatePointsFromInvoices(c, { silent:true });
+    } else {
+      renderInvoices();
+    }
+    showToast('Invoice marked paid');
+    backdrop.remove();
     if(c && c.phoneStored){
       const text = `Thank you, we have received your payment of R${Number(inv.amount).toFixed(2)} for Invoice #${inv.number}.\nPayment method: ${method}.\nPlease rate our service from 1 (poor) to 5 (excellent) by replying with your rating.\n\nGreetings,\nVP Laundry.`;
       openWhatsAppDesktop(c.phoneStored, text);
