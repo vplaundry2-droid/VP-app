@@ -440,6 +440,7 @@ function renderCustomerList(){
       </div>
       <div class="actions">
         <button data-open="${c.id}">Open</button>
+        <button data-recalc="${c.id}">Recalculate</button>
         <button data-edit="${c.id}">Edit</button>
         <button data-delete="${c.id}" style="color:var(--danger)">Delete</button>
       </div>`;
@@ -447,6 +448,7 @@ function renderCustomerList(){
   });
 
   customersListEl.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openCustomer(b.dataset.open)));
+  customersListEl.querySelectorAll('[data-recalc]').forEach(b=> b.addEventListener('click', ()=> recalcCustomerPoints(b.dataset.recalc)));
   customersListEl.querySelectorAll('[data-edit]').forEach(b=> b.addEventListener('click', ()=> editCustomer(b.dataset.edit)));
   customersListEl.querySelectorAll('[data-delete]').forEach(b=> b.addEventListener('click', ()=> deleteCustomer(b.dataset.delete)));
 }
@@ -459,6 +461,22 @@ function openCustomer(id){
   autoAllocatePointsForCustomer(c);
   renderPoints(c); renderTransactionsForCustomer(c); renderCustomerList();
   btnWelcomeWA.style.display = c.welcomeSent ? 'none' : 'inline-block';
+}
+
+function recalcCustomerPoints(id){
+  const c = state.customers.find(x=> x.id === id);
+  if(!c) return showToast('Customer not found', true);
+  const changed = allocatePointsFromInvoices(c, { silent:true, updateUi:false });
+  if(changed){
+    showToast(`Points recalculated: ${formatPoints(c.pointsBalance||0)} pts`);
+  } else {
+    showToast('Points were already up to date');
+  }
+  if(currentCustomerId === id){
+    renderPoints(c);
+    renderTransactionsForCustomer(c);
+  }
+  renderCustomerList();
 }
 
 function autoAllocatePointsForCustomer(c){
